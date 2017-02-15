@@ -18,7 +18,7 @@ void listFiles(message &m, message &response, socket &s) {
 
 	DIR *dir;
 	struct dirent *ent;
-  path = "Uploads/" + user;
+	path = "Uploads/" + user;
 	const char * url =  path.c_str();
 	if ((dir = opendir (url)) != NULL) {
 		/* print all the files and directories within directory */
@@ -33,7 +33,7 @@ void listFiles(message &m, message &response, socket &s) {
 
 	} else {
 	  /* could not open directory */
-	  perror ("");
+		perror ("");
 	  //return EXIT_FAILURE;
 	}
 	response << files;
@@ -53,7 +53,7 @@ void deleteFile(message &m, message &response, socket &s) {
 	const char * location =  l.c_str();
 
 	if( remove( location ) != 0 ){
-	    response << "Error deleting file";
+		response << "Error deleting file";
 	}
 	else {
 		response << "File successfully deleted";
@@ -66,7 +66,7 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 	size_t size;
 	char * data;
 
-  client_request >> username;
+	client_request >> username;
 	client_request >> fname;
 	client_request >> size;
 	cout << "File to be uploaded: " << fname << " of size (bytes): " << size << endl;
@@ -79,23 +79,22 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 
 	FILE *f = fopen(path.c_str(), "wb");
 	assert(f);
+	fflush(f);
 	fseek(f, 0L, SEEK_SET);
 
 	cout << "Saving file...\n";
-	data = (char*) malloc (sizeof(char)*size);
+	//data = (char*) malloc (sizeof(char)*size);
 
 	data = (char*)client_request.raw_data(4);
 
 	fwrite(data, 1, size, f);
+	fclose(f);
 
 	server_response << "ok";
 	s.send(server_response);
 
 	cout << "File saved!" << endl;
-
-	fclose(f);
-	free(data);
-//	client_request.remove(3);
+	//free(data);
 }
 
 void downloadFile(message &client_request, message &server_response, socket &s, bool ready_flag = false) {
@@ -104,19 +103,20 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	char *data;
 	size_t size;
 
-  string fname, path, username;
-  client_request >> username;
+	string fname, path, username;
+	client_request >> username;
 	client_request >> fname;
 
 	path = "Uploads/" + username + "/";
 
 	path.append(fname);
 
-  if(!(f = fopen(path.c_str(), "rb"))) {
+	if(!(f = fopen(path.c_str(), "rb"))) {
 		server_response << "Error" << 0;
 		s.send(server_response);
 		return;
 	}
+	fflush(f);
 
 	if(ready_flag) {
 
@@ -127,13 +127,12 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 		size = fread(data, 1, size, f);
 
 		if(s.send_raw(data, size)) {
+			free(data);
+			fclose(f);
 			cout << "Message that contains \"Data\" has been sended successfully\n";
 		} else {
 			cout << "Message that contains \"Data\" hasnt been sended successfully\n";
 		}
-		
-		fclose(f);
-		free(data);
 		return;
 	}
 
@@ -161,32 +160,32 @@ void createUser(message &m, message &response, socket &s) {
 	m >> password;
 
 	Json::Value root;   // will contains the root value after parsing.
-    Json::Reader reader;
-    Json::StyledStreamWriter writer;
-    std::ifstream test("users.json");
-    bool parsingSuccessful = reader.parse( test, root );
-    if ( !parsingSuccessful )
-    {
+	Json::Reader reader;
+	Json::StyledStreamWriter writer;
+	std::ifstream test("users.json");
+	bool parsingSuccessful = reader.parse( test, root );
+	if ( !parsingSuccessful )
+	{
         // report to the user the failure and their locations in the document.
-        std::cout  << "Failed to parse configuration: "<< reader.getFormattedErrorMessages();
-    }
-    if (root[user]["password"] == password) {
-    	response << "Failed" << "Username \"" + user + "\" already exists!";
-    }
-    else {
-    	root[user]["password"] = password;
-    	test.close();
-    	ofstream test1("users.json");
-    	cout << "New user created: " << user << endl;
-    	writer.write(test1,root);
+		std::cout  << "Failed to parse configuration: "<< reader.getFormattedErrorMessages();
+	}
+	if (root[user]["password"] == password) {
+		response << "Failed" << "Username \"" + user + "\" already exists!";
+	}
+	else {
+		root[user]["password"] = password;
+		test.close();
+		ofstream test1("users.json");
+		cout << "New user created: " << user << endl;
+		writer.write(test1,root);
 
-    	url = "mkdir -p Uploads/" + user;
-    	const char * directory =  url.c_str();
-    	system(directory);
-    	response << "Ok" << "Username \"" + user + "\" was created!";
-    }
+		url = "mkdir -p Uploads/" + user;
+		const char * directory =  url.c_str();
+		system(directory);
+		response << "Ok" << "Username \"" + user + "\" was created!";
+	}
 
-    s.send(response);
+	s.send(response);
 
 }
 
@@ -198,21 +197,21 @@ void verifyUser(message &m, message &response, socket &s) {
 	m >> password;
 
 	Json::Value root;   // will contains the root value after parsing.
-    Json::Reader reader;
-    Json::StyledStreamWriter writer;
-    std::ifstream test("users.json");
-    bool parsingSuccessful = reader.parse( test, root );
-    if ( !parsingSuccessful )
-    {
+	Json::Reader reader;
+	Json::StyledStreamWriter writer;
+	std::ifstream test("users.json");
+	bool parsingSuccessful = reader.parse( test, root );
+	if ( !parsingSuccessful )
+	{
         // report to the user the failure and their locations in the document.
-        std::cout  << "Failed to parse configuration: "<< reader.getFormattedErrorMessages();
-    }
-    if (root[user]["password"] == password) {
-    	response << 1;
-    }
-    else response << 0;
+		std::cout  << "Failed to parse configuration: "<< reader.getFormattedErrorMessages();
+	}
+	if (root[user]["password"] == password) {
+		response << 1;
+	}
+	else response << 0;
 
-    s.send(response);
+	s.send(response);
 }
 
 void messageHandler(message &client_request, message &server_response, socket &s) {
@@ -249,7 +248,7 @@ int main() {
 	cout << "Binding socket to tcp port 5555\n";
 	s.bind("tcp://*:5555");
 
-  struct stat sb;
+	struct stat sb;
 	lstat("Uploads/", &sb);
 
 	if(!S_ISDIR(sb.st_mode)) {

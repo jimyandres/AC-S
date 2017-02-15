@@ -2,7 +2,6 @@
 #include <string>
 #include <zmqpp/zmqpp.hpp>
 #include <sys/stat.h>
-//#include <conio.h>
 #include <stdio.h>
 
 using namespace std;
@@ -48,12 +47,12 @@ void downloadFile(socket &s, string op, string username) {
 
 	s.receive(answer);
 
-  if(answer.get(0) == "Error") {
-    if(atoi(answer.get(1).c_str()) == 0) {
-      cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
-      return;
-    }
-  }
+	if(answer.get(0) == "Error") {
+		if(atoi(answer.get(1).c_str()) == 0) {
+			cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
+			return;
+		}
+	}
 
 	answer >> size;
 	answer >> file_name;
@@ -82,9 +81,10 @@ void downloadFile(socket &s, string op, string username) {
 
 	f = fopen(path.c_str(), "wb");
 	assert(f);
+	fflush(f);
 	fseek(f, 0L, SEEK_SET);
 
-	data_request << "FileDataDown" << fname << size;
+	data_request << "FileDataDown" << username << fname << size;
 	s.send(data_request);
 
 	if(s.receive_raw(data, size)) {
@@ -96,10 +96,11 @@ void downloadFile(socket &s, string op, string username) {
 	cout << "Saving to file..." << endl;
 
 	fwrite(data, 1, size, f);
-	fclose(f);
 	free(data);
 
 	cout << "File saved successfully\n";
+
+	fclose(f);
 }
 
 void uploadFile(socket &s, string op, string username) {
@@ -119,6 +120,7 @@ void uploadFile(socket &s, string op, string username) {
 		cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
 		return;
 	}
+	fflush(f);
 
 	fseek(f, 0L, SEEK_END);
 	long sz = ftell(f);
@@ -185,7 +187,7 @@ int main() {
 	message login, response, create_user;
 	string op, create, answer;
 	char username[40];
-  string password = "";
+	string password = "";
 	int access;
 
 	cout << "This is the client\n";
@@ -205,36 +207,36 @@ int main() {
 			cin >> username;
 
 			cout << "Enter Password: \n";
-      cin >> password;
-      /*char ch = getchar();
-      while(ch != 13){//character 13 is enter
-        password.push_back(ch);
-        cout << '*';
-        ch = getchar();
-      }*/
+			cin >> password;
+			/*char ch = getchar();
+			while(ch != 13){//character 13 is enter
+			password.push_back(ch);
+			cout << '*';
+			ch = getchar();
+			}*/
 
-			create_user << "CreateUser" << username << password;
-			s.send(create_user);
-			s.receive(response);
+	        create_user << "CreateUser" << username << password;
+	        s.send(create_user);
+	        s.receive(response);
 
-			response >> op;
-			response >> answer;
+	        response >> op;
+	        response >> answer;
 
-			cout << answer;
+	        cout << answer;
 
-			if (op == "Ok") {
-				break;
-			}
+	        if (op == "Ok") {
+	        	break;
+	        }
 
-		} else if (create == "no" || create == "n") {
-			cout << "Enter User name: \n";
-			cin >> username;
+	    } else if (create == "no" || create == "n") {
+	    	cout << "Enter User name: \n";
+	    	cin >> username;
 
-			cout << "Enter Password: \n";
-      cin >> password;
-			break;
+	    	cout << "Enter Password: \n";
+	    	cin >> password;
+	    	break;
 
-		} else cout << "Invalid option!\n";
+	    } else cout << "Invalid option!\n";
 	}
 
 	login << "Login" << username << password;
@@ -250,24 +252,24 @@ int main() {
 			cout <<  "Enter action to perform: \n";
 			cin >> op;
 
-      if(op == "Upload" || op == "upload" || op == "up") {
-  			uploadFile(s, "Upload", username);
-  		} else if(op == "Download" || op == "download" || op == "down") {
-  			downloadFile(s, "Download", username);
-  		} else if(op == "List_files" || op == "list_files" || op == "ls") {
-  			listFiles(s, "List_files", username);
-  		} else if(op == "Delete" || op == "delete" || op == "del") {
-  			deleteFile(s, "Delete", username);
-  		} else if(op == "Exit" || op == "exit" || op == "ex") {
-  			break;
-  		} else {
-  			cout << "\nInvalid option, please enter one of the listed options!\n";
-  		}
+			if(op == "Upload" || op == "upload" || op == "up") {
+				uploadFile(s, "Upload", username);
+			} else if(op == "Download" || op == "download" || op == "down") {
+				downloadFile(s, "Download", username);
+			} else if(op == "List_files" || op == "list_files" || op == "ls") {
+				listFiles(s, "List_files", username);
+			} else if(op == "Delete" || op == "delete" || op == "del") {
+				deleteFile(s, "Delete", username);
+			} else if(op == "Exit" || op == "exit" || op == "ex") {
+				break;
+			} else {
+				cout << "\nInvalid option, please enter one of the listed options!\n";
+			}
 		}
 	}
-	else cout << "User not found";
+	else cout << "\nUser not found!!\n\n";
 
-   	cout << "Finished\n";
-    s.close();
-    return 0;
+	cout << "Finished\n";
+	s.close();
+	return 0;
 }
