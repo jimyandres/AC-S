@@ -82,7 +82,7 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 	fseek(f, 0L, SEEK_SET);
 
 	cout << "Saving file...\n";
-	//data = (char*) malloc (sizeof(char)*size);
+	data = (char*) malloc (sizeof(char)*size);
 
 	data = (char*)client_request.raw_data(4);
 
@@ -94,7 +94,7 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 	cout << "File saved!" << endl;
 
 	fclose(f);
-	//free(data);
+	free(data);
 //	client_request.remove(3);
 }
 
@@ -131,7 +131,9 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 		} else {
 			cout << "Message that contains \"Data\" hasnt been sended successfully\n";
 		}
-
+		
+		fclose(f);
+		free(data);
 		return;
 	}
 
