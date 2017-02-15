@@ -1,9 +1,9 @@
-#include <iostream>   
+#include <iostream>
 #include <string>
 #include <fstream>
 #include <zmqpp/zmqpp.hpp>
 #include <dirent.h>
-//#include <stdio.h>
+#include <sys/stat.h>
 
 #include <jsoncpp/json/json.h>
 #include <jsoncpp/json/writer.h>
@@ -12,13 +12,14 @@ using namespace std;
 using namespace zmqpp;
 
 void listFiles(message &m, message &response, socket &s) {
-	string files, user;
+	string files, user, path;
 
 	m >> user;
-	
+
 	DIR *dir;
 	struct dirent *ent;
-	const char * url =  user.c_str();
+  path = "Uploads/" + user;
+	const char * url =  path.c_str();
 	if ((dir = opendir (url)) != NULL) {
 		/* print all the files and directories within directory */
 		while ((ent = readdir (dir)) != NULL) {
@@ -29,7 +30,7 @@ void listFiles(message &m, message &response, socket &s) {
 		}
 		files += "\n";
 		closedir (dir);
-	  
+
 	} else {
 	  /* could not open directory */
 	  perror ("");
@@ -37,7 +38,7 @@ void listFiles(message &m, message &response, socket &s) {
 	}
 	response << files;
 	s.send(response);
-	
+
 }
 
 void deleteFile(message &m, message &response, socket &s) {
@@ -46,7 +47,7 @@ void deleteFile(message &m, message &response, socket &s) {
 	m >> user;
 	m >> filename;
 
-	l = user + "/" + filename;
+	l = "Uploads/" + user + "/" + filename;
 
 	cout << "Deleting: " + l;
 	const char * location =  l.c_str();
@@ -60,15 +61,41 @@ void deleteFile(message &m, message &response, socket &s) {
 	s.send(response);
 }
 
-void uploadFile(message &m, message &response) {
-	string fname;
-	m >> fname;
-	/*if(!(f = fopen("testdata", "r"))) {
-		cout << "No se pudo crear el arhcivo" << endl;
-		return;
-	}*/
-	cout << "File to be uploaded: " << fname << endl;
-	response << "ok";
+void uploadFile(message &client_request, message &server_response, socket &s) {
+	string fname, path, username;
+	size_t size;
+	char * data;
+
+  client_request >> username;
+	client_request >> fname;
+	client_request >> size;
+	cout << "File to be uploaded: " << fname << " of size (bytes): " << size << endl;
+
+	path = "Uploads/" + username + "/";
+
+	path.append(fname);
+
+	cout << "Path: " << path.c_str() << endl;
+
+	FILE *f = fopen(path.c_str(), "wb");
+	assert(f);
+	fseek(f, 0L, SEEK_SET);
+
+	cout << "Saving file...\n";
+	//data = (char*) malloc (sizeof(char)*size);
+
+	data = (char*)client_request.raw_data(4);
+
+	fwrite(data, 1, size, f);
+
+	server_response << "ok";
+	s.send(server_response);
+
+	cout << "File saved!" << endl;
+
+	fclose(f);
+	//free(data);
+//	client_request.remove(3);
 }
 
 void downloadFile(message &client_request, message &server_response, socket &s, bool ready_flag = false) {
@@ -77,11 +104,19 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	char *data;
 	size_t size;
 
-	string fname;
+  string fname, path, username;
+  client_request >> username;
 	client_request >> fname;
 
-	f = fopen(fname.c_str(), "rb");
-	assert(f);
+	path = "Uploads/" + username + "/";
+
+	path.append(fname);
+
+  if(!(f = fopen(path.c_str(), "rb"))) {
+		server_response << "Error" << 0;
+		s.send(server_response);
+		return;
+	}
 
 	if(ready_flag) {
 
@@ -97,8 +132,6 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 			cout << "Message that contains \"Data\" hasnt been sended successfully\n";
 		}
 
-		fclose(f);
-		free(data);
 		return;
 	}
 
@@ -106,9 +139,9 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	long sz = ftell(f);
 	cout <<"File size in bytes: " << sz << endl;
 	fseek(f, 0L, SEEK_SET);
-	
+
 	server_response << sz << fname;
-	
+
 	cout << "File requested: " << fname << endl;
 
 	if(s.send(server_response, true)) {
@@ -145,7 +178,7 @@ void createUser(message &m, message &response, socket &s) {
     	cout << "New user created: " << user << endl;
     	writer.write(test1,root);
 
-    	url = "mkdir -p " + user;
+    	url = "mkdir -p Uploads/" + user;
     	const char * directory =  url.c_str();
     	system(directory);
     	response << "Ok" << "Username \"" + user + "\" was created!";
@@ -161,7 +194,7 @@ void verifyUser(message &m, message &response, socket &s) {
 
 	m >> user;
 	m >> password;
-	
+
 	Json::Value root;   // will contains the root value after parsing.
     Json::Reader reader;
     Json::StyledStreamWriter writer;
@@ -178,17 +211,6 @@ void verifyUser(message &m, message &response, socket &s) {
     else response << 0;
 
     s.send(response);
-
-    //return 0;
-
-    /*std::cout << root << std::endl;
-    root[user]["password"] = "buffalo";
-    test.close();
-    std::ofstream test1("users.json");
-    writer.write(test1,root);
-    std::cout << root << std::endl;
-    return 1;*/
-
 }
 
 void messageHandler(message &client_request, message &server_response, socket &s) {
@@ -201,15 +223,15 @@ void messageHandler(message &client_request, message &server_response, socket &s
 		createUser(client_request, server_response, s);
 	} else  if(op == "Login") {
 		verifyUser(client_request, server_response, s);
-	} else  if(op == "Upload" || op == "upload") {
-		uploadFile(client_request, server_response);
-	} else if(op == "Download" || op == "download") {
+	} else  if(op == "Upload") {
+		uploadFile(client_request, server_response, s);
+	} else if(op == "Download") {
 		downloadFile(client_request, server_response, s);
-	} else if(op == "FileData") {
+	} else if(op == "FileDataDown") {
 		downloadFile(client_request, server_response, s, true);
-	} else if(op == "List_files" || op == "list_files") {
+	} else if(op == "List_files") {
 		listFiles(client_request, server_response, s);
-	} else if(op == "Delete" || op == "delete") {
+	} else if(op == "Delete") {
 		deleteFile(client_request, server_response, s);
 	} else {
 		server_response << "Error";
@@ -225,6 +247,15 @@ int main() {
 	cout << "Binding socket to tcp port 5555\n";
 	s.bind("tcp://*:5555");
 
+  struct stat sb;
+	lstat("Uploads/", &sb);
+
+	if(!S_ISDIR(sb.st_mode)) {
+		string url = "mkdir -p Uploads";
+		const char * directory =  url.c_str();
+		system(directory);
+	}
+
 	while(true) {
 		cout << "Waiting for message to arrive!\n";
 
@@ -234,7 +265,6 @@ int main() {
 		cout << "Message received!\n";
 
 		messageHandler(client_request, server_response, s);
-		//s.send(response);
 	}
 
 	return 0;

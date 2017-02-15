@@ -1,10 +1,9 @@
 #include <iostream>
 #include <string>
 #include <zmqpp/zmqpp.hpp>
-
 #include <sys/stat.h>
-
-#define CHUNK_SIZE 250000
+//#include <conio.h>
+#include <stdio.h>
 
 using namespace std;
 using namespace zmqpp;
@@ -15,7 +14,24 @@ void printMenu() {
 	cout << "\n";
 }
 
-void downloadFile(socket &s, string op) {
+void getFileName(char fname[100], char file_name[100]) {
+	char *temp_pt = strrchr(fname, '/');
+	if(temp_pt == NULL) {
+		strcpy (file_name, fname);
+	} else {
+		//cout << strlen(fname) << endl;
+		size_t pos = temp_pt-fname+1, j=0;
+		while(pos < strlen(fname)) {
+			file_name[j] = fname[pos];
+			pos++;
+			j++;
+		}
+		file_name[j] = '\0';
+	}
+	//cout << "file: " << file_name << endl;
+}
+
+void downloadFile(socket &s, string op, string username) {
 	char fname[100];
 	string file_name, path;
 	message metadata_file, answer, data_request;
@@ -27,10 +43,17 @@ void downloadFile(socket &s, string op) {
 	cin.getline(fname, sizeof(fname));
 	cin.getline(fname, sizeof(fname));
 
-	metadata_file << op << fname;
+	metadata_file << op << username << fname;
 	s.send(metadata_file);
 
 	s.receive(answer);
+
+  if(answer.get(0) == "Error") {
+    if(atoi(answer.get(1).c_str()) == 0) {
+      cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
+      return;
+    }
+  }
 
 	answer >> size;
 	answer >> file_name;
@@ -58,13 +81,10 @@ void downloadFile(socket &s, string op) {
 	cout << "Path: " << path << endl;
 
 	f = fopen(path.c_str(), "wb");
-
-
 	assert(f);
 	fseek(f, 0L, SEEK_SET);
 
-	data_request << "FileData" << fname << size;
-	//s.connect("tcp://localhost:5555");
+	data_request << "FileDataDown" << fname << size;
 	s.send(data_request);
 
 	if(s.receive_raw(data, size)) {
@@ -82,53 +102,54 @@ void downloadFile(socket &s, string op) {
 	cout << "File saved successfully\n";
 }
 
-void uploadFile(socket &s, string op) {
+void uploadFile(socket &s, string op, string username) {
 	FILE* f;
 	char *data;
 	size_t size;
-	char fname[100];
+	char fname[100], file_name[100];
+	message metadata_message, server_answer, data_message;
 
 	cout << "Enter file name: \n";
 	cin.getline(fname, sizeof(fname));
 	cin.getline(fname, sizeof(fname));
-/*
-	f = fopen(fname.c_str(), "rb");
-	assert(f);
 
-	if(ready_flag) {
+	getFileName(fname, file_name);
 
-		client_request >> size;
-		data = (char*) malloc (sizeof(char)*size);
-		assert(data);
-
-		size = fread(data, 1, size, f);
-
-		if(s.send_raw(data, size)) {
-			cout << "Message that contains \"Data\" has been sended successfully\n";
-		} else {
-			cout << "Message that contains \"Data\" hasnt been sended successfully\n";
-		}
-
-		fclose(f);
-		free(data);
+	if(!(f = fopen(fname, "rb"))) {
+		cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
 		return;
 	}
 
 	fseek(f, 0L, SEEK_END);
 	long sz = ftell(f);
-	cout <<"File size in bytes: " << sz << endl;
+	cout << "\nFile size (bytes): " << sz << endl;
 	fseek(f, 0L, SEEK_SET);
-	
-	server_response << sz << fname;
-	
-	cout << "File requested: " << fname << endl;
 
-	if(s.send(server_response, true)) {
-		cout << "Message that contains \"Response\" has been sended successfully\n";
+	cout << "File to upload: " << file_name << endl;
+
+	data = (char*) malloc (sizeof(char)*sz);
+	assert(data);
+
+	size = fread(data, 1, sz, f);
+
+	metadata_message << op << username << file_name << size;
+
+	metadata_message.push_back(data, size);
+
+	if(s.send(metadata_message)) {
+		cout << "Message containing \""<< file_name << "\" has been sended successfully\n";
 	} else {
-		cout << "Message that contains \"Response\" hasnt been sended successfully\n";
+		cout << "Message containing \""<< file_name << "\" hasnt been sended successfully\n";
 	}
-	fclose(f);*/
+
+	s.receive(server_answer);
+
+	if(server_answer.get(0) == "ok") {
+		cout << "File has been uploaded successfully!!" << endl;
+	}
+
+	fclose(f);
+	free(data);
 }
 
 void listFiles(socket &s, string op, string username) {
@@ -163,7 +184,8 @@ int main() {
 
 	message login, response, create_user;
 	string op, create, answer;
-	char username[40], password[100];
+	char username[40];
+  string password = "";
 	int access;
 
 	cout << "This is the client\n";
@@ -183,7 +205,13 @@ int main() {
 			cin >> username;
 
 			cout << "Enter Password: \n";
-			cin >> password;
+      cin >> password;
+      /*char ch = getchar();
+      while(ch != 13){//character 13 is enter
+        password.push_back(ch);
+        cout << '*';
+        ch = getchar();
+      }*/
 
 			create_user << "CreateUser" << username << password;
 			s.send(create_user);
@@ -203,12 +231,11 @@ int main() {
 			cin >> username;
 
 			cout << "Enter Password: \n";
-			cin >> password;
+      cin >> password;
 			break;
 
 		} else cout << "Invalid option!\n";
 	}
-
 
 	login << "Login" << username << password;
 
@@ -223,19 +250,19 @@ int main() {
 			cout <<  "Enter action to perform: \n";
 			cin >> op;
 
-			if(op == "Upload" || op == "upload") {
-				uploadFile(s, op);
-			} else if(op == "Download" || op == "download") {
-				downloadFile(s, op);
-			} else if(op == "List_files" || op == "list_files") {
-				listFiles(s, op, username);
-			} else if(op == "Delete" || op == "delete") {
-				deleteFile(s, op, username);
-			} else if(op == "Exit" || op == "exit") {
-				break;
-			} else {
-				cout << "Invalid option, please enter one of the listed options\n";
-			}
+      if(op == "Upload" || op == "upload" || op == "up") {
+  			uploadFile(s, "Upload", username);
+  		} else if(op == "Download" || op == "download" || op == "down") {
+  			downloadFile(s, "Download", username);
+  		} else if(op == "List_files" || op == "list_files" || op == "ls") {
+  			listFiles(s, "List_files", username);
+  		} else if(op == "Delete" || op == "delete" || op == "del") {
+  			deleteFile(s, "Delete", username);
+  		} else if(op == "Exit" || op == "exit" || op == "ex") {
+  			break;
+  		} else {
+  			cout << "\nInvalid option, please enter one of the listed options!\n";
+  		}
 		}
 	}
 	else cout << "User not found";
