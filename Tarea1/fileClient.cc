@@ -2,10 +2,20 @@
 #include <string>
 #include <zmqpp/zmqpp.hpp>
 #include <sys/stat.h>
-#include <stdio.h>
+
+#include <openssl/md5.h>
 
 using namespace std;
 using namespace zmqpp;
+
+void printChecksum (unsigned char * check_sum) {
+	char mdString[33];
+ 
+    for(int i = 0; i < 16; i++)
+         sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
+ 
+    printf("%s\n", mdString);
+}
 
 void printMenu() {
 	cout << "\n\n***********************************\n";
@@ -38,6 +48,9 @@ void downloadFile(socket &s, string op, string username) {
 	char *data;
 	FILE* f;
 
+	unsigned char check_sum[MD5_DIGEST_LENGTH];
+	unsigned char *received_check_sum;
+
 	cout << "Enter file name: \n";
 	cin.getline(fname, sizeof(fname));
 	cin.getline(fname, sizeof(fname));
@@ -56,9 +69,6 @@ void downloadFile(socket &s, string op, string username) {
 
 	answer >> size;
 	answer >> file_name;
-
-	data = (char*) malloc (sizeof(char)*size);
-	assert(data);
 
 	cout << "File size: " << size << endl;
 
@@ -84,23 +94,25 @@ void downloadFile(socket &s, string op, string username) {
 	fflush(f);
 	fseek(f, 0L, SEEK_SET);
 
-	data_request << "FileDataDown" << username << fname << size;
-	s.send(data_request);
+	data = (char*)answer.raw_data(2);
+	received_check_sum = (unsigned char *)answer.raw_data(3);
 
-	if(s.receive_raw(data, size)) {
-		cout << "Message that contains \"Data\" has been received successfully\n";
-	} else {
-		cout << "Message that contains \"Data\" hasnt been received successfully\n";
+	MD5((unsigned char *)data, size, (unsigned char *)&check_sum);
+	
+	cout << "Calculated check sum: ";
+	printChecksum(check_sum);
+
+	if(memcmp(received_check_sum, check_sum, MD5_DIGEST_LENGTH)) {
+		cout << "\nThe Checksum failed, please try again!!" << endl;
+		return;
 	}
 
 	cout << "Saving to file..." << endl;
 
 	fwrite(data, 1, size, f);
-	free(data);
+	fclose(f);
 
 	cout << "File saved successfully\n";
-
-	fclose(f);
 }
 
 void uploadFile(socket &s, string op, string username) {
@@ -109,6 +121,8 @@ void uploadFile(socket &s, string op, string username) {
 	size_t size;
 	char fname[100], file_name[100];
 	message metadata_message, server_answer, data_message;
+
+	unsigned char check_sum[MD5_DIGEST_LENGTH];
 
 	cout << "Enter file name: \n";
 	cin.getline(fname, sizeof(fname));
@@ -138,6 +152,18 @@ void uploadFile(socket &s, string op, string username) {
 
 	metadata_message.push_back(data, size);
 
+	/* first argument needs to be an unsigned char pointer
+     * second argument is number of bytes in the first argument
+     * last argument is our buffer, which needs to be able to hold
+     * the 16 byte result of the MD5 operation */
+    MD5((unsigned char *)data, size, (unsigned char *)&check_sum);
+
+    cout << "Calculated check sum: ";
+	printChecksum(check_sum);
+
+    metadata_message.push_back(check_sum, MD5_DIGEST_LENGTH);
+
+
 	if(s.send(metadata_message)) {
 		cout << "Message containing \""<< file_name << "\" has been sended successfully\n";
 	} else {
@@ -145,6 +171,15 @@ void uploadFile(socket &s, string op, string username) {
 	}
 
 	s.receive(server_answer);
+
+	if(server_answer.get(0) == "Error") {
+		if(atoi(server_answer.get(1).c_str()) == 0) {
+			cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
+			return;
+		} else if(atoi(server_answer.get(1).c_str()) == 0) {
+			cout << "\nThe Checksum failed, please try again!!" << endl;
+		}
+	}
 
 	if(server_answer.get(0) == "ok") {
 		cout << "File has been uploaded successfully!!" << endl;
@@ -208,12 +243,6 @@ int main() {
 
 			cout << "Enter Password: \n";
 			cin >> password;
-			/*char ch = getchar();
-			while(ch != 13){//character 13 is enter
-			password.push_back(ch);
-			cout << '*';
-			ch = getchar();
-			}*/
 
 	        create_user << "CreateUser" << username << password;
 	        s.send(create_user);

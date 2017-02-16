@@ -8,8 +8,19 @@
 #include <jsoncpp/json/json.h>
 #include <jsoncpp/json/writer.h>
 
+#include <openssl/md5.h>
+
 using namespace std;
 using namespace zmqpp;
+
+void printChecksum (unsigned char * check_sum) {
+	char mdString[33];
+ 
+    for(int i = 0; i < 16; i++)
+         sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
+ 
+    printf("%s\n", mdString);
+}
 
 void listFiles(message &m, message &response, socket &s) {
 	string files, user, path;
@@ -66,9 +77,13 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 	size_t size;
 	char * data;
 
+	unsigned char check_sum[MD5_DIGEST_LENGTH];
+	unsigned char *received_check_sum;
+
 	client_request >> username;
 	client_request >> fname;
 	client_request >> size;
+
 	cout << "File to be uploaded: " << fname << " of size (bytes): " << size << endl;
 
 	path = "Uploads/" + username + "/";
@@ -82,10 +97,25 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 	fflush(f);
 	fseek(f, 0L, SEEK_SET);
 
-	cout << "Saving file...\n";
-	//data = (char*) malloc (sizeof(char)*size);
-
 	data = (char*)client_request.raw_data(4);
+	received_check_sum = (unsigned char *)client_request.raw_data(5);
+
+	MD5((unsigned char *)data, size, (unsigned char *)&check_sum);	
+
+	//cout << "Received check sum: ";
+	//printChecksum(received_check_sum);
+
+	cout << "Calculated check sum: ";
+	printChecksum(check_sum);
+
+	if(memcmp(received_check_sum, check_sum, MD5_DIGEST_LENGTH)) {
+		cout << "Error" << endl;
+		server_response << "Error" << 1;
+		s.send(server_response);
+		return;
+	}
+
+	cout << "Saving file...\n";
 
 	fwrite(data, 1, size, f);
 	fclose(f);
@@ -94,14 +124,15 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 	s.send(server_response);
 
 	cout << "File saved!" << endl;
-	//free(data);
 }
 
-void downloadFile(message &client_request, message &server_response, socket &s, bool ready_flag = false) {
-
+void downloadFile(message &client_request, message &server_response, socket &s) {
 	FILE* f;
 	char *data;
 	size_t size;
+	long sz;
+
+	unsigned char check_sum[MD5_DIGEST_LENGTH];
 
 	string fname, path, username;
 	client_request >> username;
@@ -116,40 +147,37 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 		s.send(server_response);
 		return;
 	}
+
 	fflush(f);
 
-	if(ready_flag) {
-
-		client_request >> size;
-		data = (char*) malloc (sizeof(char)*size);
-		assert(data);
-
-		size = fread(data, 1, size, f);
-
-		if(s.send_raw(data, size)) {
-			free(data);
-			fclose(f);
-			cout << "Message that contains \"Data\" has been sended successfully\n";
-		} else {
-			cout << "Message that contains \"Data\" hasnt been sended successfully\n";
-		}
-		return;
-	}
-
 	fseek(f, 0L, SEEK_END);
-	long sz = ftell(f);
+	sz = ftell(f);
 	cout <<"File size in bytes: " << sz << endl;
 	fseek(f, 0L, SEEK_SET);
 
-	server_response << sz << fname;
+	data = (char*) malloc (sizeof(char)*sz);
+	assert(data);
 
-	cout << "File requested: " << fname << endl;
+	size = fread(data, 1, sz, f);
 
-	if(s.send(server_response, true)) {
-		cout << "Message that contains \"Response\" has been sended successfully\n";
+	server_response << size << fname;
+
+	server_response.push_back(data, size);
+
+	MD5((unsigned char *)data, size, (unsigned char *)&check_sum);
+
+	cout << "Calculated check sum: ";
+	printChecksum(check_sum);
+
+	server_response.push_back(check_sum, MD5_DIGEST_LENGTH);
+
+	if(s.send(server_response)) {
+		cout << "Message that contains \"Data\" has been sended successfully\n";
 	} else {
-		cout << "Message that contains \"Response\" hasnt been sended successfully\n";
+		cout << "Message that contains \"Data\" hasnt been sended successfully\n";
 	}
+
+	free(data);
 	fclose(f);
 }
 
@@ -228,8 +256,6 @@ void messageHandler(message &client_request, message &server_response, socket &s
 		uploadFile(client_request, server_response, s);
 	} else if(op == "Download") {
 		downloadFile(client_request, server_response, s);
-	} else if(op == "FileDataDown") {
-		downloadFile(client_request, server_response, s, true);
 	} else if(op == "List_files") {
 		listFiles(client_request, server_response, s);
 	} else if(op == "Delete") {
@@ -240,10 +266,10 @@ void messageHandler(message &client_request, message &server_response, socket &s
 }
 
 int main() {
-	cout << "This is the server\n";  // imprime en pantalla
+	cout << "This is the server\n"; 
 
-	context ctx;  //declaramos una variable ctx como un tipo de contexto
-	socket s(ctx, socket_type::rep); //declaramos un socket de tipo s, necesita tener un contexto
+	context ctx;  
+	socket s(ctx, socket_type::rep);
 
 	cout << "Binding socket to tcp port 5555\n";
 	s.bind("tcp://*:5555");
