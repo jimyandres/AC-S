@@ -1,4 +1,4 @@
-CC	= g++ -std=c++11 -Wall -L/home/johan/zmq/lib -I/home/johan/zmq/include
+CC	= g++ -std=c++11 -Wall -L$(HOME)/zmq/lib -I$(HOME)/zmq/include
 LDFLAGS = -lpthread -lzmqpp -lzmq -ljsoncpp 
 
 all: server client

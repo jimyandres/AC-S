@@ -4,6 +4,10 @@
 #include <sys/stat.h>
 #include <stdio.h>
 
+#include <unistd.h> 		//Get the user id of the current user
+#include <sys/types.h>
+#include <pwd.h>			//Get the password entry (which includes the home directory) of the user
+
 using namespace std;
 using namespace zmqpp;
 
@@ -64,16 +68,20 @@ void downloadFile(socket &s, string op, string username) {
 
 	//Check if "Downloads/" dir exists,
 	//	if not, it's created.
+	struct passwd *pw = getpwuid(getuid());
+	const char *homedir = pw->pw_dir;
+
+	path = (string)homedir + "/Descargas/Downloads/";
+
 	struct stat sb;
-	lstat("Downloads/", &sb);
+	lstat(path.c_str(), &sb);
 
 	if(!S_ISDIR(sb.st_mode)) {
-		string url = "mkdir -p Downloads";
+		string url = "mkdir -p " + (string)path;
 		const char * directory =  url.c_str();
 		system(directory);
 	}
 
-	path = "Downloads/";
 
 	path.append(file_name);
 
