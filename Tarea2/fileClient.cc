@@ -1,4 +1,5 @@
 #include <iostream>
+#include <stdio.h>
 #include <string>
 #include <zmqpp/zmqpp.hpp>
 #include <sys/stat.h>
@@ -80,6 +81,8 @@ void downloadFile(socket &s, string op, string username) {
 
 	received_check_sum = (unsigned char *)answer.raw_data(3);
 
+	cout << "Received Check sum: ";
+	printChecksum(received_check_sum);
 
 	data_request << "ok";
 	s.send(data_request);
@@ -144,6 +147,8 @@ void downloadFile(socket &s, string op, string username) {
 
 	}
 
+	cout << "Chunks received: " << chunks << "\n Bytes received: " << total << endl;
+
 	f = fopen(path.c_str(), "rb");
 	assert(f);
 	fflush(f);
@@ -159,13 +164,19 @@ void downloadFile(socket &s, string op, string username) {
 	cout << "Calculated check sum: ";
 	printChecksum(check_sum);
 
-	cout << "Received Check sum: ";
-	printChecksum(received_check_sum);
-
 	if(memcmp(received_check_sum, check_sum, MD5_DIGEST_LENGTH)) {
 		cout << "\nThe Checksum failed, please try again!!" << endl;
+		fclose(f);
+		free(data_md5);
+		if( remove(path.c_str()) != 0 )
+			cout << "Error deleting file: " << path << endl;
+		else
+			cout << "File: " << path << " successfully deleted\n";
+		return;
+	} else {
+		cout << "File saved successfully\n";
 	}
-	else cout << "File saved successfully\n";
+
 	fclose(f);
 	free(data_md5);
 	s.receive(answer);

@@ -10,7 +10,7 @@
 
 #include <openssl/md5.h>
 
-#define CHUNK_SIZE 250000
+#define CHUNK_SIZE 5242880
 
 using namespace std;
 using namespace zmqpp;
@@ -196,6 +196,8 @@ void downloadFile(message &client_request, message &server_r, socket &s) {
 		server_response.push_back(data, size);
 		if(!s.send(server_response))
 			cout << "Message that contains \"Data\" hasnt been sended successfully\n";
+		//else
+		//	cout << "Chunk sended - size in bytes: " << size << endl;
 		s.receive(ok);
 		if (ok.get(0) != "ok")
 			break;
