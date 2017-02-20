@@ -8,7 +8,7 @@
 #include <jsoncpp/json/json.h>
 #include <jsoncpp/json/writer.h>
 
-#include <openssl/md5.h>
+#include <openssl/sha.h>
 
 #define CHUNK_SIZE 5242880
 
@@ -79,7 +79,7 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 	size_t size;
 	char * data;
 
-	unsigned char check_sum[MD5_DIGEST_LENGTH];
+	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	unsigned char *received_check_sum;
 
 	client_request >> username;
@@ -102,7 +102,7 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 	data = (char*)client_request.raw_data(4);
 	received_check_sum = (unsigned char *)client_request.raw_data(5);
 
-	MD5((unsigned char *)data, size, (unsigned char *)&check_sum);	
+	SHA1((unsigned char *)data, size, (unsigned char *)&check_sum);	
 
 	//cout << "Received check sum: ";
 	//printChecksum(received_check_sum);
@@ -110,7 +110,7 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 	cout << "Calculated check sum: ";
 	printChecksum(check_sum);
 
-	if(memcmp(received_check_sum, check_sum, MD5_DIGEST_LENGTH)) {
+	if(memcmp(received_check_sum, check_sum, SHA_DIGEST_LENGTH)) {
 		cout << "Error" << endl;
 		server_response << "Error" << 1;
 		s.send(server_response);
@@ -130,17 +130,19 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 
 void downloadFile(message &client_request, message &server_r, socket &s) {
 	FILE* f;
-	char *data_md5 = NULL;
-	size_t size, size_md5;
+	char *data_sha1 = NULL, *data;
+	size_t size, size_sha1, offset;
 	long sz;
 
 	message ok, server_response;
 
-	unsigned char check_sum[MD5_DIGEST_LENGTH];//[MD5_DIGEST_LENGTH];
+	unsigned char check_sum[SHA_DIGEST_LENGTH];
 
 	string fname, path, username;
+
 	client_request >> username;
 	client_request >> fname;
+	client_request >> offset;
 
 	path = "Uploads/" + username + "/";
 
@@ -153,62 +155,47 @@ void downloadFile(message &client_request, message &server_r, socket &s) {
 	}
 
 	fflush(f);
-
 	fseek(f, 0L, SEEK_END);
 	sz = ftell(f);
-	cout <<"File size in bytes: " << sz << endl;
 	fseek(f, 0L, SEEK_SET);
 
-	data_md5 = (char*) malloc (sizeof(char)*sz);
+	if(offset == 0) {
+		cout <<"File size in bytes: " << sz << endl;
+	} else if((int)offset == sz) {
+		data_sha1 = (char*) malloc (sizeof(char)*sz);
+		size_sha1 = fread(data_sha1, 1, sz, f);
 
-	size_md5 = fread(data_md5, 1, sz, f);
+		SHA1((unsigned char *)data_sha1, size_sha1, (unsigned char *)&check_sum);
+		free(data_sha1);
 
+		cout << "Calculated check sum: ";
+		printChecksum(check_sum);
 
-	server_response << sz << fname << CHUNK_SIZE;
+		server_response.push_back(check_sum, SHA_DIGEST_LENGTH);
 
-	//memset(&check_sum, 0, MD5_DIGEST_LENGTH);
+		fclose(f);
 
-	MD5((unsigned char *)data_md5, size_md5, (unsigned char *)&check_sum);
-	free(data_md5);
-
-	cout << "Calculated check sum: ";
-	printChecksum(check_sum);
-
-	server_response.push_back(check_sum, MD5_DIGEST_LENGTH);
-
-	s.send(server_response);
-	s.receive(ok);
-	if(ok.get(0) != "ok"){
-		cout << "NO OK" << endl;
+		if(s.send(server_response)) {
+			cout << "File \"" << fname << "\" has been sended successfully\n";
+		} else {
+			cout << "File \"" << fname << "\"Data\" hasnt been sended successfully\n";
+		}
 		return;
 	}
 
-	fseek(f, 0L, SEEK_SET);
+	fseek(f, offset, SEEK_SET);
 
-	while(true){
+	data = (char *) malloc (CHUNK_SIZE);
+	assert(data);
 
-		char *data = (char *)malloc (CHUNK_SIZE);
-		assert(data);
-		size = fread (data, 1, CHUNK_SIZE, f);
+	size = fread (data, 1, CHUNK_SIZE, f);
 
-		if (size == 0) {
-			break;
-		}
+	server_response << CHUNK_SIZE;
+	server_response.push_back(data, size);
 
-		server_response.push_back(data, size);
-		if(!s.send(server_response))
-			cout << "Message that contains \"Data\" hasnt been sended successfully\n";
-		//else
-		//	cout << "Chunk sended - size in bytes: " << size << endl;
-		s.receive(ok);
-		if (ok.get(0) != "ok")
-			break;
-		free(data);
-
-	}
-	server_response << "ok";
-	s.send(server_response);
 	fclose(f);
+	free(data);
+	s.send(server_response);
 }
 
 void createUser(message &m, message &response, socket &s) {
@@ -319,7 +306,7 @@ int main() {
 		message client_request, server_response;
 		s.receive(client_request);
 
-		cout << "Message received!\n";
+		//cout << "Message received!\n";
 
 		messageHandler(client_request, server_response, s);
 	}

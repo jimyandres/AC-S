@@ -4,11 +4,13 @@
 #include <zmqpp/zmqpp.hpp>
 #include <sys/stat.h>
 
-#include <openssl/md5.h>
+#include <openssl/sha.h>
 
 #include <unistd.h> 		//Get the user id of the current user
 #include <sys/types.h>
 #include <pwd.h>			//Get the password entry (which includes the home directory) of the user
+
+//#define CHUNK_SIZE 5242880
 
 using namespace std;
 using namespace zmqpp;
@@ -48,46 +50,21 @@ void getFileName(char fname[100], char file_name[100]) {
 void downloadFile(socket &s, string op, string username) {
 	char fname[100];
 	string file_name, path;
-	message metadata_file, answer, data_request;
+	message metadata_file, answer, data_request, req_check_sum;
 	size_t size;
-	char *data_md5 = NULL;
+	char *data_sha1 = NULL;
 	FILE* f;
 	int CHUNK_SIZE;
 
-	unsigned char check_sum[MD5_DIGEST_LENGTH];
+	size_t total = 0;
+	size_t chunks = 0;
+
+	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	unsigned char *received_check_sum = NULL;
 
 	cout << "Enter file name: \n";
 	cin.getline(fname, sizeof(fname));
 	cin.getline(fname, sizeof(fname));
-
-	metadata_file << op << username << fname;
-	s.send(metadata_file);
-
-	s.receive(answer);
-
-	answer.reset_read_cursor();
-
-	if(answer.get(0) == "Error") {
-		if(atoi(answer.get(1).c_str()) == 0) {
-			cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
-			return;
-		}
-	}
-
-	answer >> size;
-	answer >> file_name;
-	answer >> CHUNK_SIZE;
-
-	received_check_sum = (unsigned char *)answer.raw_data(3);
-
-	cout << "Received Check sum: ";
-	printChecksum(received_check_sum);
-
-	data_request << "ok";
-	s.send(data_request);
-
-	cout << "File size: " << size << endl;
 
 	//Check if "Downloads/" dir exists,
 	//	if not, it's created.
@@ -105,90 +82,85 @@ void downloadFile(socket &s, string op, string username) {
 		system(directory);
 	}
 
-	path.append(file_name);
-
-	cout << "Path: " << path << endl;
-
-	size_t total = 0;
-	size_t chunks = 0;
-
+	path.append(fname);
 
 	cout << "Saving to file..." << endl;
 
-	while(true){
+	while(true) {
+		metadata_file << op << username << fname << total;
+		s.send(metadata_file);
 
-		if (!s.receive(answer))
-			break;
+		s.receive(answer);
+
+		if(answer.get(0) == "Error") {
+			if(atoi(answer.get(1).c_str()) == 0) {
+				cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
+				return;
+			}
+		}
+
+		answer >> CHUNK_SIZE;
 
 		if (total == 0)
 			f = fopen(path.c_str(), "wb");
-		else
-			f = fopen(path.c_str(), "a+");
-		assert(f);
-		fflush(f);
-		fseek(f, 0L, SEEK_END);
-
-		chunks++;
-		size = answer.size(0);
-		if (size == 0)
-			break;
-		char *data = NULL;//(char*) malloc(size*sizeof(char));
-		data = (char*) answer.raw_data(0);
-		fwrite(data, 1, size, f);
-		total += size;
-
-		fclose(f);
-		//free(data);
-
-		data_request << "ok";
-		s.send(data_request);
-
-		if ((int)size < CHUNK_SIZE){
-			break;
+		else {
+			f = fopen(path.c_str(), "ab");
+			fseek(f, 0L, SEEK_END);
 		}
 
+		fflush(f);
+
+		chunks++;
+		size = answer.size(1);
+
+		char *data;
+		data = (char*) answer.raw_data(1);
+		fwrite(data, 1, size, f);
+		total += size;
+		fclose(f);
+
+		if (size == 0 || (int)size < CHUNK_SIZE) {
+			req_check_sum << op << username << fname << total;
+			s.send(req_check_sum);
+			break;
+		}
 	}
 
 	cout << "Chunks received: " << chunks << "\n Bytes received: " << total << endl;
+
+	s.receive(answer);
+	received_check_sum = (unsigned char *)answer.raw_data(0);
 
 	f = fopen(path.c_str(), "rb");
 	assert(f);
 	fflush(f);
 	fseek(f, 0L, SEEK_SET);
 
-	data_md5 = (char*) malloc (sizeof(char)*total);
-	assert(data_md5);
+	data_sha1 = (char*) malloc (sizeof(char)*total);
+	assert(data_sha1);
 
-	size = fread(data_md5, 1, total, f);
+	size = fread(data_sha1, 1, total, f);
 
-	memset(&check_sum, 0, MD5_DIGEST_LENGTH);
-
-	MD5((unsigned char *)data_md5, size, (unsigned char *)&check_sum);
+	SHA1((unsigned char *)data_sha1, size, (unsigned char *)&check_sum);
 	
+	cout << "Received Check sum: ";
+	printChecksum(received_check_sum);
+
 	cout << "Calculated check sum: ";
 	printChecksum(check_sum);
 
-	cout << "Size of received_check_sum: " << sizeof(received_check_sum) << "\nSize of check_sum: " << sizeof(check_sum) << endl;
-
-	if(memcmp(&check_sum, received_check_sum, MD5_DIGEST_LENGTH)) {
+	if(memcmp(check_sum, received_check_sum, SHA_DIGEST_LENGTH)) {
 		cout << "\nThe Checksum failed, please try again!!" << endl;
-		//fclose(f);
-		//free(data_md5);
 		if( remove(path.c_str()) != 0 )
 			cout << "Error deleting file: " << path << endl;
 		else
 			cout << "File: " << path << " successfully deleted\n";
-		//return;
 	} else {
 		cout << "File saved successfully\n";
 	}
 
 	fclose(f);
-	free(data_md5);
-	s.receive(answer);
-	if(answer.get(0) != "ok") {
-		cout << "Lost Connection!";
-	}
+	free(data_sha1);
 }
 
 void uploadFile(socket &s, string op, string username) {
@@ -198,7 +170,7 @@ void uploadFile(socket &s, string op, string username) {
 	char fname[100], file_name[100];
 	message metadata_message, server_answer, data_message;
 
-	unsigned char check_sum[MD5_DIGEST_LENGTH];
+	unsigned char check_sum[SHA_DIGEST_LENGTH];
 
 	cout << "Enter file name: \n";
 	cin.getline(fname, sizeof(fname));
@@ -231,13 +203,13 @@ void uploadFile(socket &s, string op, string username) {
 	/* first argument needs to be an unsigned char pointer
      * second argument is number of bytes in the first argument
      * last argument is our buffer, which needs to be able to hold
-     * the 16 byte result of the MD5 operation */
-    MD5((unsigned char *)data, size, (unsigned char *)&check_sum);
+     * the 16 byte result of the SHA operation */
+    SHA1((unsigned char *)data, size, (unsigned char *)&check_sum);
 
     cout << "Calculated check sum: ";
 	printChecksum(check_sum);
 
-    metadata_message.push_back(check_sum, MD5_DIGEST_LENGTH);
+    metadata_message.push_back(check_sum, SHA_DIGEST_LENGTH);
 
 
 	if(s.send(metadata_message)) {
