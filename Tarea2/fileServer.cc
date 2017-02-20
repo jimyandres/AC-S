@@ -130,13 +130,13 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 
 void downloadFile(message &client_request, message &server_r, socket &s) {
 	FILE* f;
-	char *data_md5;
+	char *data_md5 = NULL;
 	size_t size, size_md5;
 	long sz;
 
 	message ok, server_response;
 
-	unsigned char check_sum[MD5_DIGEST_LENGTH];
+	unsigned char check_sum[MD5_DIGEST_LENGTH];//[MD5_DIGEST_LENGTH];
 
 	string fname, path, username;
 	client_request >> username;
@@ -165,6 +165,8 @@ void downloadFile(message &client_request, message &server_r, socket &s) {
 
 
 	server_response << sz << fname << CHUNK_SIZE;
+
+	//memset(&check_sum, 0, MD5_DIGEST_LENGTH);
 
 	MD5((unsigned char *)data_md5, size_md5, (unsigned char *)&check_sum);
 	free(data_md5);

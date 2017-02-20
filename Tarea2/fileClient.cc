@@ -50,12 +50,12 @@ void downloadFile(socket &s, string op, string username) {
 	string file_name, path;
 	message metadata_file, answer, data_request;
 	size_t size;
-	char *data, *data_md5;
+	char *data_md5 = NULL;
 	FILE* f;
 	int CHUNK_SIZE;
 
 	unsigned char check_sum[MD5_DIGEST_LENGTH];
-	unsigned char *received_check_sum;
+	unsigned char *received_check_sum = NULL;
 
 	cout << "Enter file name: \n";
 	cin.getline(fname, sizeof(fname));
@@ -132,11 +132,13 @@ void downloadFile(socket &s, string op, string username) {
 		size = answer.size(0);
 		if (size == 0)
 			break;
-		data = (char*)answer.raw_data();
+		char *data = NULL;//(char*) malloc(size*sizeof(char));
+		data = (char*) answer.raw_data(0);
 		fwrite(data, 1, size, f);
 		total += size;
 
 		fclose(f);
+		//free(data);
 
 		data_request << "ok";
 		s.send(data_request);
@@ -159,20 +161,24 @@ void downloadFile(socket &s, string op, string username) {
 
 	size = fread(data_md5, 1, total, f);
 
+	memset(&check_sum, 0, MD5_DIGEST_LENGTH);
+
 	MD5((unsigned char *)data_md5, size, (unsigned char *)&check_sum);
 	
 	cout << "Calculated check sum: ";
 	printChecksum(check_sum);
 
-	if(memcmp(received_check_sum, check_sum, MD5_DIGEST_LENGTH)) {
+	cout << "Size of received_check_sum: " << sizeof(received_check_sum) << "\nSize of check_sum: " << sizeof(check_sum) << endl;
+
+	if(memcmp(&check_sum, received_check_sum, MD5_DIGEST_LENGTH)) {
 		cout << "\nThe Checksum failed, please try again!!" << endl;
-		fclose(f);
-		free(data_md5);
+		//fclose(f);
+		//free(data_md5);
 		if( remove(path.c_str()) != 0 )
 			cout << "Error deleting file: " << path << endl;
 		else
 			cout << "File: " << path << " successfully deleted\n";
-		return;
+		//return;
 	} else {
 		cout << "File saved successfully\n";
 	}
