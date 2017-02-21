@@ -10,7 +10,7 @@
 #include <sys/types.h>
 #include <pwd.h>			//Get the password entry (which includes the home directory) of the user
 
-//#define CHUNK_SIZE 5242880
+#define CHUNK_SIZE 5242880
 
 using namespace std;
 using namespace zmqpp;
@@ -49,12 +49,12 @@ void getFileName(char fname[100], char file_name[100]) {
 
 void downloadFile(socket &s, string op, string username) {
 	char fname[100];
-	string file_name, path;
-	message metadata_file, answer, data_request, req_check_sum;
+	string path;
+	message metadata_file, answer, req_check_sum;
 	size_t size;
 	char *data_sha1 = NULL;
 	FILE* f;
-	int CHUNK_SIZE;
+	int size_chunk;
 
 	size_t total = 0;
 	size_t chunks = 0;
@@ -99,7 +99,7 @@ void downloadFile(socket &s, string op, string username) {
 			}
 		}
 
-		answer >> CHUNK_SIZE;
+		answer >> size_chunk;
 
 		if (total == 0)
 			f = fopen(path.c_str(), "wb");
@@ -119,7 +119,7 @@ void downloadFile(socket &s, string op, string username) {
 		total += size;
 		fclose(f);
 
-		if (size == 0 || (int)size < CHUNK_SIZE) {
+		if (size == 0 || (int)size < size_chunk) {
 			req_check_sum << op << username << fname << total;
 			s.send(req_check_sum);
 			break;
@@ -166,9 +166,9 @@ void downloadFile(socket &s, string op, string username) {
 void uploadFile(socket &s, string op, string username) {
 	FILE* f;
 	char *data;
-	size_t size;
+	size_t size, offset;
 	char fname[100], file_name[100];
-	message metadata_message, server_answer, data_message;
+	message file_message, server_answer, check_sum_msg;
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 
@@ -191,15 +191,39 @@ void uploadFile(socket &s, string op, string username) {
 
 	cout << "File to upload: " << file_name << endl;
 
+	offset = 0;
+	while(true) {
+		fseek(f, offset, SEEK_SET);
+		data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
+		assert(data);
+
+		size = fread(data, 1, CHUNK_SIZE, f);
+
+		file_message << op << username << file_name << CHUNK_SIZE << offset;
+
+		file_message.push_back(data, size);
+
+		s.send(file_message);
+
+		s.receive(server_answer);
+
+		if(server_answer.get(0) == "Error") {
+			if(atoi(server_answer.get(1).c_str()) == 0) {
+			cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
+			return;
+			}
+		} else if(server_answer.get(0) == "Done") {
+			break;
+		}
+		offset += size;
+		free(data);
+	}
+
+	fseek(f, 0L, SEEK_SET);
 	data = (char*) malloc (sizeof(char)*sz);
 	assert(data);
 
 	size = fread(data, 1, sz, f);
-
-	metadata_message << op << username << file_name << size;
-
-	metadata_message.push_back(data, size);
-
 	/* first argument needs to be an unsigned char pointer
      * second argument is number of bytes in the first argument
      * last argument is our buffer, which needs to be able to hold
@@ -209,14 +233,10 @@ void uploadFile(socket &s, string op, string username) {
     cout << "Calculated check sum: ";
 	printChecksum(check_sum);
 
-    metadata_message.push_back(check_sum, SHA_DIGEST_LENGTH);
+	check_sum_msg << op << username << file_name << "Check";
 
-
-	if(s.send(metadata_message)) {
-		cout << "Message containing \""<< file_name << "\" has been sended successfully\n";
-	} else {
-		cout << "Message containing \""<< file_name << "\" hasnt been sended successfully\n";
-	}
+    check_sum_msg.push_back(check_sum, SHA_DIGEST_LENGTH);
+    s.send(check_sum_msg);
 
 	s.receive(server_answer);
 
@@ -252,10 +272,12 @@ void listFiles(socket &s, string op, string username) {
 
 void deleteFile(socket &s, string op, string username) {
 	message request, response;
-	string filename, status;
+	string status;
+	char filename[100];
 
 	cout << "Enter File name: \n";
-	cin >> filename;
+	cin.getline(filename, sizeof(filename));
+	cin.getline(filename, sizeof(filename));
 
 	request << op << username << filename;
 	s.send(request);
