@@ -255,8 +255,8 @@ void createUser(message &m, message &response, socket &s) {
         // report to the user the failure and their locations in the document.
 		std::cout  << "Failed to parse configuration: "<< reader.getFormattedErrorMessages();
 	}
-	if (root[user]["password"] == password) {
-		response << "Failed" << "Username \"" + user + "\" already exists!";
+	if (root.isMember(user)) {
+		response << "Failed" << "Username \"" + user + "\" already exists!\n";
 	}
 	else {
 		root[user]["password"] = password;
