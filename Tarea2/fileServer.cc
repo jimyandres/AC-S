@@ -62,14 +62,14 @@ void deleteFile(message &m, message &response, socket &s) {
 
 	l = "Uploads/" + user + "/" + filename;
 
-	cout << "Deleting: " + l;
+	cout << "Deleting: " + l << endl;;
 	const char * location =  l.c_str();
 
 	if( remove( location ) != 0 ){
-		response << "Error deleting file";
+		response << "Error deleting file\n";
 	}
 	else {
-		response << "File successfully deleted";
+		response << "File successfully deleted\n";
 	}
 	s.send(response);
 }
@@ -128,6 +128,7 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 			cout << "Error" << endl;
 			server_response << "Error" << 1;
 			s.send(server_response);
+			fclose(f);
 			return;
 		}
 
@@ -135,13 +136,12 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 		s.send(server_response);
 
 		cout << "File saved!" << endl;
+		fclose(f);
 		return;
 	}
 
 	client_request >> chunk_size;
 	client_request >> total;
-
-	//cout << "File to be uploaded: " << fname << " of size (bytes): " << size << endl;
 
 	if (total == 0)
 		f = fopen(path.c_str(), "wb");
@@ -175,7 +175,7 @@ void downloadFile(message &client_request, message &server_r, socket &s) {
 	size_t size, size_sha1, offset;
 	long sz;
 
-	message ok, server_response;
+	message server_response;
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 
@@ -347,7 +347,7 @@ int main() {
 		message client_request, server_response;
 		s.receive(client_request);
 
-		//cout << "Message received!\n";
+		cout << "Message received!\n";
 
 		messageHandler(client_request, server_response, s);
 	}
