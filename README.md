@@ -38,7 +38,7 @@ Once these dependencies are installed you can compile the code by either executi
 ### Tests
 
 This project is made for Linux distributions.
-First execute the export.sh file, It will compile the fileClient.cc and fileServer.cc files. Then run ```./fileServer <<server_address>>``` and ```./fileClient```, the "server_addres" argument its the address in which the server will be running, for example: localhost:5555. The client program will guide you to the options that the server provide, like create a new user or just login. After login, it will show you the major options like List_files, Download, Upload, Delete and Exit.
+First execute the export.sh file, It will compile the fileClient.cc and fileServer.cc files. Then run ```./fileServer <<server_address>>``` and ```./fileClient```, the "server_addres" argument is the address in which the server will be running, for example: localhost:5555. The client program will guide you to the options that the server provide, like create a new user or just login. After login, it will show you the major options like List_files, Download, Upload, Delete and Exit.
 
 According to the selected option, the program will ask you some information like location of the file to upload or the name of the file to download, etc.
 
