@@ -323,14 +323,23 @@ void messageHandler(message &client_request, message &server_response, socket &s
 	}
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+	string server_address = "tcp://";
+
+	if (argc != 2) {
+		cout << "Please use like this: ./fileServer localhost:5555\n";
+		return EXIT_FAILURE;
+	} else {
+		server_address.append(argv[1]);
+	}
+
 	cout << "This is the server\n"; 
 
 	context ctx;  
 	socket s(ctx, socket_type::rep);
 
 	cout << "Binding socket to tcp port 5555\n";
-	s.bind("tcp://*:5555");
+	s.bind(server_address);
 
 	struct stat sb;
 	lstat("Uploads/", &sb);
