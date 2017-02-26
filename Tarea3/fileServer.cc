@@ -336,7 +336,7 @@ int main(int argc, char* argv[]) {
 	cout << "This is the server\n"; 
 
 	context ctx;  
-	socket s(ctx, socket_type::push);
+	socket s(ctx, socket_type::rep);
 
 	cout << "Binding socket to tcp port 5555\n";
 	s.bind(server_address);
