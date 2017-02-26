@@ -115,6 +115,7 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 
 		SHA1((unsigned char *)data_sha1, size_sha1, (unsigned char *)&check_sum);
 		free(data_sha1);
+		fclose(f);
 
 		cout << "Calculated check sum: ";
 		printChecksum(check_sum);
@@ -131,12 +132,10 @@ void uploadFile(message &client_request, message &server_response, socket &s) {
 			fclose(f);
 			return;
 		}
+		cout << "File saved!" << endl;
 
 		server_response << "ok";
 		s.send(server_response);
-
-		cout << "File saved!" << endl;
-		fclose(f);
 		return;
 	}
 
@@ -231,6 +230,7 @@ void downloadFile(message &client_request, message &server_r, socket &s) {
 
 	size = fread (data, 1, CHUNK_SIZE, f);
 
+	server_response << sz;
 	server_response << CHUNK_SIZE;
 	server_response.push_back(data, size);
 
@@ -336,7 +336,7 @@ int main(int argc, char* argv[]) {
 	cout << "This is the server\n"; 
 
 	context ctx;  
-	socket s(ctx, socket_type::rep);
+	socket s(ctx, socket_type::push);
 
 	cout << "Binding socket to tcp port 5555\n";
 	s.bind(server_address);

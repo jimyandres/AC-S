@@ -55,6 +55,8 @@ void downloadFile(socket &s, string op, string username) {
 	char *data_sha1 = NULL;
 	FILE* f;
 	int size_chunk;
+	long file_size;
+	double progress;
 
 	size_t total = 0;
 	size_t chunks = 0;
@@ -99,11 +101,13 @@ void downloadFile(socket &s, string op, string username) {
 			}
 		}
 
+		answer >> file_size;
 		answer >> size_chunk;
 
-		if (total == 0)
+		if (total == 0) {
 			f = fopen(path.c_str(), "wb");
-		else {
+			progress = ((double)total/(double)file_size);
+		} else {
 			f = fopen(path.c_str(), "ab");
 			fseek(f, 0L, SEEK_END);
 		}
@@ -111,13 +115,19 @@ void downloadFile(socket &s, string op, string username) {
 		fflush(f);
 
 		chunks++;
-		size = answer.size(1);
+		size = answer.size(2);
 
 		char *data;
-		data = (char*) answer.raw_data(1);
+		data = (char*) answer.raw_data(2);
 		fwrite(data, 1, size, f);
 		total += size;
 		fclose(f);
+
+		progress = ((double)total/(double)file_size);
+		if((progress*100.0) <= 100.0){
+			printf("\r[%3.2f%%]",progress*100.0);
+		}
+		fflush(stdout);
 
 		if (size == 0 || (int)size < size_chunk) {
 			req_check_sum << op << username << fname << total;
@@ -126,7 +136,8 @@ void downloadFile(socket &s, string op, string username) {
 		}
 	}
 
-	cout << "Chunks received: " << chunks << "\n Bytes received: " << total << endl;
+	cout << endl;
+	cout << "Chunks received: " << chunks << "\nBytes received: " << total << endl;
 
 	s.receive(answer);
 	received_check_sum = (unsigned char *)answer.raw_data(0);
@@ -143,6 +154,9 @@ void downloadFile(socket &s, string op, string username) {
 
 	SHA1((unsigned char *)data_sha1, size, (unsigned char *)&check_sum);
 	
+	fclose(f);
+	free(data_sha1);
+
 	cout << "Received Check sum: ";
 	printChecksum(received_check_sum);
 
@@ -156,11 +170,8 @@ void downloadFile(socket &s, string op, string username) {
 		else
 			cout << "File: " << path << " successfully deleted\n";
 	} else {
-		cout << "File saved successfully\n";
+		cout << "File saved successfully!!\n";
 	}
-
-	fclose(f);
-	free(data_sha1);
 }
 
 void uploadFile(socket &s, string op, string username) {
@@ -169,6 +180,7 @@ void uploadFile(socket &s, string op, string username) {
 	size_t size, offset;
 	char fname[100], file_name[100];
 	message file_message, server_answer, check_sum_msg;
+	double progress;
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 
@@ -202,10 +214,18 @@ void uploadFile(socket &s, string op, string username) {
 		file_message << op << username << file_name << CHUNK_SIZE << offset;
 
 		file_message.push_back(data, size);
+		free(data);
 
 		s.send(file_message);
 
 		s.receive(server_answer);
+
+		offset += size;
+		progress = ((double)offset/(double)sz);
+		if((progress*100.0) <= 100.0){
+			printf("\r[%3.2f%%]",progress*100.0);
+		}
+		fflush(stdout);
 
 		if(server_answer.get(0) == "Error") {
 			if(atoi(server_answer.get(1).c_str()) == 0) {
@@ -215,8 +235,6 @@ void uploadFile(socket &s, string op, string username) {
 		} else if(server_answer.get(0) == "Done") {
 			break;
 		}
-		offset += size;
-		free(data);
 	}
 
 	fseek(f, 0L, SEEK_SET);
@@ -230,12 +248,16 @@ void uploadFile(socket &s, string op, string username) {
      * the 16 byte result of the SHA operation */
     SHA1((unsigned char *)data, size, (unsigned char *)&check_sum);
 
-    cout << "Calculated check sum: ";
+    cout << "\nCalculated check sum: ";
 	printChecksum(check_sum);
 
 	check_sum_msg << op << username << file_name << "Check";
 
     check_sum_msg.push_back(check_sum, SHA_DIGEST_LENGTH);
+
+    fclose(f);
+	free(data);
+
     s.send(check_sum_msg);
 
 	s.receive(server_answer);
@@ -252,9 +274,6 @@ void uploadFile(socket &s, string op, string username) {
 	if(server_answer.get(0) == "ok") {
 		cout << "File has been uploaded successfully!!" << endl;
 	}
-
-	fclose(f);
-	free(data);
 }
 
 void listFiles(socket &s, string op, string username) {
@@ -298,7 +317,7 @@ int main() {
 	cout << "This is the client\n";
 
 	context ctx;
-	socket s(ctx, socket_type::req);
+	socket s(ctx, socket_type::pull);
 
 	cout << "Connecting to tcp port 5555\n";
 	s.connect("tcp://localhost:5555");
