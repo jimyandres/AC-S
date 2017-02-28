@@ -106,7 +106,6 @@ void downloadFile(socket &s, string op, string username) {
 
 		if (total == 0) {
 			f = fopen(path.c_str(), "wb");
-			progress = ((double)total/(double)file_size);
 		} else {
 			f = fopen(path.c_str(), "ab");
 			fseek(f, 0L, SEEK_END);

@@ -1,4 +1,5 @@
 #include <iostream>
+#include <stdio.h>
 #include <string>
 #include <fstream>
 #include <zmqpp/zmqpp.hpp>
@@ -341,6 +342,11 @@ int main(int argc, char* argv[]) {
 	cout << "Binding socket to tcp port 5555\n";
 	s.bind(server_address);
 
+	poller p;
+
+	p.add(s, poller::poll_in);
+	//p.add(standardin, poller::poll_in);
+
 	struct stat sb;
 	lstat("Uploads/", &sb);
 
@@ -351,15 +357,29 @@ int main(int argc, char* argv[]) {
 	}
 
 	while(true) {
-		cout << "Waiting for message to arrive!\n";
+		if(p.poll()) {
+			if(p.has_input(s)) {
+				cout << "Waiting for message to arrive!\n";
 
-		message client_request, server_response;
-		s.receive(client_request);
+				message client_request, server_response;
+				s.receive(client_request);
 
-		cout << "Message received!\n";
+				cout << "Message received!\n";
 
-		messageHandler(client_request, server_response, s);
+				messageHandler(client_request, server_response, s);
+			}
+			/*if(p.has_input(standardin)) {
+				string input;
+				getline(cin, input);
+				if(input == "q" || input == "quit" || input == "Quit" || input == "ex" || input == "Exit" || input == "exit") {
+					break;
+				}
+			}*/
+		}
 	}
+
+	//s.close();
+	//ctx.terminate();
 
 	return 0;
 }
