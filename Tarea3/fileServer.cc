@@ -357,9 +357,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	while(true) {
+		cout << "Waiting for message to arrive!\n";
 		if(p.poll()) {
 			if(p.has_input(s)) {
-				cout << "Waiting for message to arrive!\n";
 
 				message client_request, server_response;
 				s.receive(client_request);

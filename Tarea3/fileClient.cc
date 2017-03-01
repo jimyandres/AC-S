@@ -47,7 +47,7 @@ void getFileName(char fname[100], char file_name[100]) {
 	//cout << "file: " << file_name << endl;
 }
 
-void downloadFile(socket &s, string op, string username) {
+void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
 	char fname[100];
 	string path;
 	message metadata_file, answer, req_check_sum;
@@ -90,9 +90,9 @@ void downloadFile(socket &s, string op, string username) {
 
 	while(true) {
 		metadata_file << op << username << fname << total;
-		s.send(metadata_file);
+		broker_socket.send(metadata_file);
 
-		s.receive(answer);
+		broker_socket.receive(answer);
 
 		if(answer.get(0) == "Error") {
 			if(atoi(answer.get(1).c_str()) == 0) {
@@ -130,7 +130,7 @@ void downloadFile(socket &s, string op, string username) {
 
 		if (size == 0 || (int)size < size_chunk) {
 			req_check_sum << op << username << fname << total;
-			s.send(req_check_sum);
+			broker_socket.send(req_check_sum);
 			break;
 		}
 	}
@@ -138,7 +138,7 @@ void downloadFile(socket &s, string op, string username) {
 	cout << endl;
 	cout << "Chunks received: " << chunks << "\nBytes received: " << total << endl;
 
-	s.receive(answer);
+	broker_socket.receive(answer);
 	received_check_sum = (unsigned char *)answer.raw_data(0);
 
 	f = fopen(path.c_str(), "rb");
@@ -173,7 +173,7 @@ void downloadFile(socket &s, string op, string username) {
 	}
 }
 
-void uploadFile(socket &s, string op, string username) {
+void uploadFile(socket &broker_socket, socket &download_socket, string op, string username) {
 	FILE* f;
 	char *data;
 	size_t size, offset;
@@ -215,9 +215,9 @@ void uploadFile(socket &s, string op, string username) {
 		file_message.push_back(data, size);
 		free(data);
 
-		s.send(file_message);
+		broker_socket.send(file_message);
 
-		s.receive(server_answer);
+		broker_socket.receive(server_answer);
 
 		offset += size;
 		progress = ((double)offset/(double)sz);
@@ -257,9 +257,9 @@ void uploadFile(socket &s, string op, string username) {
     fclose(f);
 	free(data);
 
-    s.send(check_sum_msg);
+    broker_socket.send(check_sum_msg);
 
-	s.receive(server_answer);
+	broker_socket.receive(server_answer);
 
 	if(server_answer.get(0) == "Error") {
 		if(atoi(server_answer.get(1).c_str()) == 0) {
@@ -316,10 +316,14 @@ int main() {
 	cout << "This is the client\n";
 
 	context ctx;
-	socket s(ctx, socket_type::req);
+	socket broker_socket(ctx, socket_type::req);
+	socket download_socket(ctx, socket_type::pull);
+
+	socket upload_socket(ctx, socket_type::push);
+	upload_socket.bind("tcp://*:5556");
 
 	cout << "Connecting to tcp port 5555\n";
-	s.connect("tcp://localhost:5555");
+	broker_socket.connect("tcp://localhost:5555");
 
 	while(true) {
 		cout << "Create new account (yes/no): ";
@@ -333,8 +337,8 @@ int main() {
 			cin >> password;
 
 	        create_user << "CreateUser" << username << password;
-	        s.send(create_user);
-	        s.receive(response);
+	        broker_socket.send(create_user);
+	        broker_socket.receive(response);
 
 	        response >> op;
 	        response >> answer;
@@ -358,9 +362,8 @@ int main() {
 
 	login << "Login" << username << password;
 
-	s.send(login);
-	s.receive(response);
-
+	broker_socket.send(login);
+	broker_socket.receive(response);
 	response >> access;
 
 	if (access) {
@@ -370,13 +373,13 @@ int main() {
 			cin >> op;
 
 			if(op == "Upload" || op == "upload" || op == "up") {
-				uploadFile(s, "Upload", username);
+				uploadFile(broker_socket, upload_socket, "Upload", username);
 			} else if(op == "Download" || op == "download" || op == "down") {
-				downloadFile(s, "Download", username);
+				downloadFile(broker_socket, download_socket, "Download", username);
 			} else if(op == "List_files" || op == "list_files" || op == "ls") {
-				listFiles(s, "List_files", username);
+				listFiles(broker_socket, "List_files", username);
 			} else if(op == "Delete" || op == "delete" || op == "del") {
-				deleteFile(s, "Delete", username);
+				deleteFile(broker_socket, "Delete", username);
 			} else if(op == "Exit" || op == "exit" || op == "ex") {
 				break;
 			} else {
@@ -387,6 +390,9 @@ int main() {
 	else cout << "\nUser not found!!\n\n";
 
 	cout << "Finished\n";
-	s.close();
+	broker_socket.close();
+	download_socket.close();
+	upload_socket.close();
+	ctx.terminate();
 	return 0;
 }
