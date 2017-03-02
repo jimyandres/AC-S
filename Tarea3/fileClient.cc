@@ -15,10 +15,14 @@
 using namespace std;
 using namespace zmqpp;
 
+bool DOWNLOADING=false;
+size_t total_downloaded = 0, chunks_downloaded = 0;
+long file_size=0;
+
 void printChecksum (unsigned char * check_sum) {
-	char mdString[33];
+	char mdString[SHA_DIGEST_LENGTH*2+1];
  
-    for(int i = 0; i < 16; i++)
+    for(int i = 0; i < SHA_DIGEST_LENGTH; i++)
          sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
  
     printf("%s\n", mdString);
@@ -47,26 +51,207 @@ void getFileName(char fname[100], char file_name[100]) {
 	//cout << "file: " << file_name << endl;
 }
 
-void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
-	char fname[100];
-	string path;
-	message metadata_file, answer, req_check_sum;
+void getCheckSum(string path, unsigned char *check_sum) {
+	FILE* f;
+	char *data;
+	SHA_CTX sha_ctx;
+
+	if(!(f = fopen(path.c_str(), "rb"))) {
+		memset(check_sum, '0', SHA_DIGEST_LENGTH);
+		return;
+	}
+
+	SHA1_Init(&sha_ctx);
 	size_t size;
-	char *data_sha1 = NULL;
+	while(true) {
+		data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
+		size = fread(data, 1, CHUNK_SIZE, f);
+		SHA1_Update(&sha_ctx, data, size);
+		if(size == 0 || size < CHUNK_SIZE)
+			break;
+		free(data);
+	}
+	fclose(f);
+	SHA1_Final(check_sum, &sha_ctx);
+	cout << "Calculated check sum: ";
+	printChecksum(check_sum);
+}
+
+void CheckFile(socket &download_socket) {
+	message check_sum_msg;
+	string path, fname;
+	unsigned char check_sum[SHA_DIGEST_LENGTH];
+	unsigned char *received_check_sum = NULL;
+
+	download_socket.receive(check_sum_msg);
+
+	check_sum_msg >> fname;
+	received_check_sum = (unsigned char *)check_sum_msg.raw_data(1);
+	cout << "Received Check sum: ";
+	printChecksum(received_check_sum);
+
+	struct passwd *pw = getpwuid(getuid());
+	const char *homedir = pw->pw_dir;
+
+	path = (string)homedir + "/Descargas/Downloads/";
+
+	struct stat sb;
+	lstat(path.c_str(), &sb);
+
+	if(!S_ISDIR(sb.st_mode)) {
+		string url = "mkdir -p " + (string)path;
+		const char * directory =  url.c_str();
+		system(directory);
+	}
+
+	path.append(fname);
+
+	getCheckSum(path, (unsigned char *)&check_sum);
+
+	if(memcmp(check_sum, received_check_sum, SHA_DIGEST_LENGTH)) {
+		cout << "\nThe Checksum failed, please try again!!" << endl;
+		if( remove(path.c_str()) != 0 )
+			cout << "Error deleting file: " << path << endl;
+		else
+			cout << "File: " << path << " successfully deleted\n";
+	} else {
+		cout << "File saved successfully!!\n";
+	}
+}
+
+int SaveFile(socket &download_socket) {
+	//cout << "total: " << total_downloaded << "; chunks: " << chunks_downloaded << "; file size: " << file_size << "; downloading: " << DOWNLOADING << endl;
+	message answer, req_check_sum;
+	string path, fname;
+	size_t size;
+	int size_chunk;
+	char *data;
+	FILE* f;
+	double progress;
+
+	cout << "Saving to file..." << endl;
+
+	download_socket.receive(answer);
+
+	if(answer.get(0) == "Error") {
+		if(atoi(answer.get(1).c_str()) == 0) {
+			cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
+			return -1;
+		}
+	}
+
+	answer >> fname;
+
+	struct passwd *pw = getpwuid(getuid());
+	const char *homedir = pw->pw_dir;
+
+	path = (string)homedir + "/Descargas/Downloads/";
+
+	struct stat sb;
+	lstat(path.c_str(), &sb);
+
+	if(!S_ISDIR(sb.st_mode)) {
+		string url = "mkdir -p " + (string)path;
+		const char * directory =  url.c_str();
+		system(directory);
+	}
+
+	path.append(fname);
+
+	if (total_downloaded == 0) {
+		f = fopen(path.c_str(), "wb");
+		answer >> file_size;
+		answer >> size_chunk;
+		size = answer.size(3);
+		data = (char*) answer.raw_data(3);
+	} else {
+		f = fopen(path.c_str(), "ab");
+		fseek(f, 0L, SEEK_END);
+		answer >> size_chunk;
+		size = answer.size(2);
+		data = (char*) answer.raw_data(2);
+	}
+
+	fwrite(data, 1, size, f);
+	total_downloaded += size;
+	chunks_downloaded++;
+	fclose(f);
+
+	progress = ((double)total_downloaded/(double)file_size);
+	if((progress*100.0) <= 100.0){
+		printf("\r[%3.2f%%]",progress*100.0);
+	}
+	fflush(stdout);
+
+	if (size == 0 || (int)size < size_chunk) {
+		cout << endl;
+		cout << "Chunks received: " << chunks_downloaded << "\nBytes received: " << total_downloaded << endl;
+		return 0;
+	}
+	return 1;
+}
+
+void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
+	if(DOWNLOADING) {
+		cout << "you are already downloading a file, wait untill that ends to request another download!\n";
+		return;
+	}
+
+	//cout << "total: " << total_downloaded << "; chunks: " << chunks_downloaded << "; file size: " << file_size << "; downloading: " << DOWNLOADING << endl;
+
+	char fname[100];
+	string server_address;
+	string path;
+	message send_request, broker_response, metadata_file, req_check_sum;
+
+	cout << "Enter file name: \n";
+	cin.getline(fname, sizeof(fname));
+	cin.getline(fname, sizeof(fname));
+
+	cout << op << " " << username << " " << fname << endl; //send req to broker
+	//cin >> server_address; //rec response from broker
+	//download_socket.connect(server_address); //connect to server
+	DOWNLOADING = true;
+
+	metadata_file << op << username << fname << total_downloaded;
+	while(true) {
+		broker_socket.send(metadata_file);
+		int stat = SaveFile(broker_socket);
+		if(stat == 1) {
+			metadata_file << op << username << fname << total_downloaded;
+		} else if(stat == 0 || stat == -1) {
+			break;
+		}
+	}
+
+	if((int)total_downloaded == file_size) {
+		req_check_sum << op << username << fname << total_downloaded;
+		broker_socket.send(req_check_sum);
+		CheckFile(broker_socket);
+		cout << "total: " << total_downloaded << "; chunks: " << chunks_downloaded << "; file size: " << file_size << "; downloading: " << DOWNLOADING << endl;
+		total_downloaded = 0;
+		chunks_downloaded = 0;
+		file_size=0;
+		DOWNLOADING = false;
+	}
+
+	/*end of download*/
+
+
+	/*message answer;
+	size_t size;
 	FILE* f;
 	int size_chunk;
 	long file_size;
 	double progress;
+	string tmp;
+	char *data;
 
 	size_t total = 0;
 	size_t chunks = 0;
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	unsigned char *received_check_sum = NULL;
-
-	cout << "Enter file name: \n";
-	cin.getline(fname, sizeof(fname));
-	cin.getline(fname, sizeof(fname));
 
 	//Check if "Downloads/" dir exists,
 	//	if not, it's created.
@@ -88,6 +273,9 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 
 	cout << "Saving to file..." << endl;
 
+	SHA_CTX sha_ctx;
+	SHA1_Init(&sha_ctx);
+
 	while(true) {
 		metadata_file << op << username << fname << total;
 		broker_socket.send(metadata_file);
@@ -101,24 +289,27 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 			}
 		}
 
-		answer >> file_size;
-		answer >> size_chunk;
+		answer >> tmp;
 
 		if (total == 0) {
 			f = fopen(path.c_str(), "wb");
+			answer >> file_size;
+			answer >> size_chunk;
+			size = answer.size(3);
+			data = (char*) answer.raw_data(3);
 		} else {
 			f = fopen(path.c_str(), "ab");
 			fseek(f, 0L, SEEK_END);
+			answer >> size_chunk;
+			size = answer.size(2);
+			data = (char*) answer.raw_data(2);
 		}
 
 		fflush(f);
 
 		chunks++;
-		size = answer.size(2);
-
-		char *data;
-		data = (char*) answer.raw_data(2);
 		fwrite(data, 1, size, f);
+		SHA1_Update(&sha_ctx, data, size);
 		total += size;
 		fclose(f);
 
@@ -135,26 +326,14 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 		}
 	}
 
+	SHA1_Final(check_sum, &sha_ctx);
+
 	cout << endl;
 	cout << "Chunks received: " << chunks << "\nBytes received: " << total << endl;
 
 	broker_socket.receive(answer);
-	received_check_sum = (unsigned char *)answer.raw_data(0);
-
-	f = fopen(path.c_str(), "rb");
-	assert(f);
-	fflush(f);
-	fseek(f, 0L, SEEK_SET);
-
-	data_sha1 = (char*) malloc (sizeof(char)*total);
-	assert(data_sha1);
-
-	size = fread(data_sha1, 1, total, f);
-
-	SHA1((unsigned char *)data_sha1, size, (unsigned char *)&check_sum);
-	
-	fclose(f);
-	free(data_sha1);
+	answer >> tmp;
+	received_check_sum = (unsigned char *)answer.raw_data(1);
 
 	cout << "Received Check sum: ";
 	printChecksum(received_check_sum);
@@ -170,7 +349,7 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 			cout << "File: " << path << " successfully deleted\n";
 	} else {
 		cout << "File saved successfully!!\n";
-	}
+	}*/
 }
 
 void uploadFile(socket &broker_socket, socket &download_socket, string op, string username) {
@@ -201,6 +380,8 @@ void uploadFile(socket &broker_socket, socket &download_socket, string op, strin
 	fseek(f, 0L, SEEK_SET);
 
 	cout << "File to upload: " << file_name << endl;
+	SHA_CTX sha_ctx;
+	SHA1_Init(&sha_ctx);
 
 	offset = 0;
 	while(true) {
@@ -209,6 +390,7 @@ void uploadFile(socket &broker_socket, socket &download_socket, string op, strin
 		assert(data);
 
 		size = fread(data, 1, CHUNK_SIZE, f);
+		SHA1_Update(&sha_ctx, data, size);
 
 		file_message << op << username << file_name << CHUNK_SIZE << offset;
 
@@ -232,20 +414,12 @@ void uploadFile(socket &broker_socket, socket &download_socket, string op, strin
 			return;
 			}
 		} else if(server_answer.get(0) == "Done") {
+			fclose(f);
 			break;
 		}
 	}
 
-	fseek(f, 0L, SEEK_SET);
-	data = (char*) malloc (sizeof(char)*sz);
-	assert(data);
-
-	size = fread(data, 1, sz, f);
-	/* first argument needs to be an unsigned char pointer
-     * second argument is number of bytes in the first argument
-     * last argument is our buffer, which needs to be able to hold
-     * the 16 byte result of the SHA operation */
-    SHA1((unsigned char *)data, size, (unsigned char *)&check_sum);
+	SHA1_Final(check_sum, &sha_ctx);
 
     cout << "\nCalculated check sum: ";
 	printChecksum(check_sum);
@@ -253,9 +427,6 @@ void uploadFile(socket &broker_socket, socket &download_socket, string op, strin
 	check_sum_msg << op << username << file_name << "Check";
 
     check_sum_msg.push_back(check_sum, SHA_DIGEST_LENGTH);
-
-    fclose(f);
-	free(data);
 
     broker_socket.send(check_sum_msg);
 

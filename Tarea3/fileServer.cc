@@ -3,6 +3,7 @@
 #include <string>
 #include <fstream>
 #include <zmqpp/zmqpp.hpp>
+#include <zmq.h>
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -17,9 +18,9 @@ using namespace std;
 using namespace zmqpp;
 
 void printChecksum (unsigned char * check_sum) {
-	char mdString[33];
+	char mdString[SHA_DIGEST_LENGTH*2+1];
  
-    for(int i = 0; i < 16; i++)
+    for(int i = 0; i < SHA_DIGEST_LENGTH; i++)
          sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
  
     printf("%s\n", mdString);
@@ -195,13 +196,14 @@ void downloadFile(message &client_request, message &server_r, socket &s) {
 		return;
 	}
 
+	server_response << fname;
 	fflush(f);
 	fseek(f, 0L, SEEK_END);
 	sz = ftell(f);
 	fseek(f, 0L, SEEK_SET);
-
 	if(offset == 0) {
 		cout <<"File size in bytes: " << sz << endl;
+		server_response << sz;
 	} else if((int)offset == sz) {
 		data_sha1 = (char*) malloc (sizeof(char)*sz);
 		size_sha1 = fread(data_sha1, 1, sz, f);
@@ -231,7 +233,6 @@ void downloadFile(message &client_request, message &server_r, socket &s) {
 
 	size = fread (data, 1, CHUNK_SIZE, f);
 
-	server_response << sz;
 	server_response << CHUNK_SIZE;
 	server_response.push_back(data, size);
 
@@ -339,13 +340,18 @@ int main(int argc, char* argv[]) {
 	context ctx;  
 	socket s(ctx, socket_type::rep);
 
+	zmq_pollitem_t standardin;
+	standardin.socket = NULL;
+	standardin.fd = 0;
+	standardin.events = poller::poll_in;
+
 	cout << "Binding socket to tcp port 5555\n";
 	s.bind(server_address);
 
 	poller p;
 
 	p.add(s, poller::poll_in);
-	//p.add(standardin, poller::poll_in);
+	p.add(standardin);
 
 	struct stat sb;
 	lstat("Uploads/", &sb);
@@ -368,18 +374,18 @@ int main(int argc, char* argv[]) {
 
 				messageHandler(client_request, server_response, s);
 			}
-			/*if(p.has_input(standardin)) {
+			if(p.has_input(standardin)) {
 				string input;
 				getline(cin, input);
 				if(input == "q" || input == "quit" || input == "Quit" || input == "ex" || input == "Exit" || input == "exit") {
 					break;
 				}
-			}*/
+			}
 		}
 	}
 
-	//s.close();
-	//ctx.terminate();
+	s.close();
+	ctx.terminate();
 
 	return 0;
 }
