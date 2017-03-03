@@ -343,10 +343,7 @@ int main(int argc, char* argv[]) {
 	socket s(ctx, socket_type::router);
 	socket down(ctx, socket_type::router);
 
-	zmq_pollitem_t standardin;
-	standardin.socket = NULL;
-	standardin.fd = 0;
-	standardin.events = poller::poll_in;
+	int standardin = fileno(stdin);
 
 	cout << "Binding socket to tcp port 5555\n";
 	s.bind(server_address);

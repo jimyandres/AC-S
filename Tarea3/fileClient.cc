@@ -1,6 +1,6 @@
 #include <iostream>
 #include <stdio.h>
-#include <string>
+#include <string.h>
 #include <zmqpp/zmqpp.hpp>
 #include <sys/stat.h>
 
@@ -48,6 +48,21 @@ void getFileName(char fname[100], char file_name[100]) {
 		}
 		file_name[j] = '\0';
 	}
+	//cout << "file: " << file_name << endl;
+}
+
+void getFileName(string fname, char file_name[100]) {
+	char * tmp = new char[fname.size()+1];
+	memcpy(tmp, fname.c_str(), fname.size()+1);
+	char *temp_pt = strrchr(tmp, '/');
+	if(temp_pt == NULL) {
+		strcpy (file_name, tmp);
+	} else {
+		//cout << strlen(fname) << endl;
+		size_t pos = temp_pt-tmp+1;
+		strcpy(file_name, &tmp[pos]);
+	}
+	delete [] tmp;
 	//cout << "file: " << file_name << endl;
 }
 
@@ -134,7 +149,7 @@ int SaveFile(socket &download_socket) {
 
 	if(answer.get(1) == "Error") {
 		if(atoi(answer.get(2).c_str()) == 0) {
-			cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
+			cout << "\nThe file " << fname << " requested does not exist or couldn't be read!!" << endl;
 			return -1;
 		}
 	}
@@ -191,9 +206,9 @@ int SaveFile(socket &download_socket) {
 }
 
 void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
-	char fname[100];
+	//char fname[100];
 	string server_address;
-	string path;
+	string path, fname;
 	message send_request, broker_response, metadata_file, req_check_sum;
 
 	if(DOWNLOADING) {
@@ -202,9 +217,9 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	}
 
 	cout << "Enter file name: \n";
-	cin.getline(fname, sizeof(fname));
-	cin.getline(fname, sizeof(fname));
-	//getline(cin, fname);
+	//cin.getline(fname, sizeof(fname));
+	//cin.getline(fname, sizeof(fname));
+	getline(cin, fname);
 
 	cout << "enter server address: " << endl; //send req to broker
 	cin >> server_address; //rec response from broker
@@ -245,26 +260,26 @@ void uploadFile(socket &broker_socket, socket &download_socket, string op, strin
 	FILE* f;
 	char *data;
 	size_t size, offset;
-	char file_name[100], fname[100];
+	char file_name[100];//, fname[100];
 	message file_message, server_answer, check_sum_msg;
 	double progress;
-	string empty, server_address;
+	string empty, server_address, fname;
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
+
+	cout << "Enter file name: \n";
+	//cin.getline(fname, sizeof(fname));
+	//cin.getline(fname, sizeof(fname));
+	getline(cin, fname);
 
 	cout << "enter server address: " << endl; //send req to broker
 	cin >> server_address; //rec response from broker
 	download_socket.connect(server_address); //connect to server
 
-	cout << "Enter file name: \n";
-	cin.getline(fname, sizeof(fname));
-	cin.getline(fname, sizeof(fname));
-	//cin.ignore(numeric_limits<streamsize>::max(), '\n');
-
 	getFileName(fname, file_name);
 
-	if(!(f = fopen(fname, "rb"))) {
-		cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
+	if(!(f = fopen(fname.c_str(), "rb"))) {
+		cout << "\nThe file " << file_name << " requested does not exist or couldn't be read!!" << endl;
 		return;
 	}
 	fflush(f);
@@ -393,7 +408,7 @@ int main() {
 	poller p;
 
 	p.add(broker_socket, poller::poll_in);
-	p.add(standardin);
+	p.add(standardin, poller::poll_in);
 
 	cout << "Connecting to tcp port 5555\n";
 	broker_socket.connect("tcp://localhost:5555");
@@ -432,6 +447,7 @@ int main() {
 
 	    } else cout << "Invalid option!\n";
 	}
+	cin.ignore(numeric_limits<streamsize>::max(), '\n');
 
 	login << "Login" << username << password;
 
@@ -440,23 +456,25 @@ int main() {
 	response >> access;
 
 	if (access) {
+		printMenu();
+		cout <<  "\nEnter action to perform: " << endl;
 		while(true) {
-			printMenu();
-			cout <<  "Enter action to perform: \n";
-			cin >> op;
-			/*if(p.poll()) {
+			//cin >> op;
+			if(p.poll()) {
 				if(p.has_input(broker_socket)) {
 					//do something eith message
 					cout <<"Message" << endl;
 				}
 				if(p.has_input(standardin)) {
-					getline(cin, op);*/
+					getline(cin, op);
 					if(op == "Upload" || op == "upload" || op == "up") {
 						uploadFile(broker_socket, s, "Upload", username);
 						p.add(s, poller::poll_out);
+						cin.ignore(numeric_limits<streamsize>::max(), '\n');
 					} else if(op == "Download" || op == "download" || op == "down") {
 						downloadFile(broker_socket, s, "Download", username);
 						p.add(s, poller::poll_in);
+						cin.ignore(numeric_limits<streamsize>::max(), '\n');
 					} else if(op == "List_files" || op == "list_files" || op == "ls") {
 						listFiles(broker_socket, "List_files", username);
 					} else if(op == "Delete" || op == "delete" || op == "del") {
@@ -466,8 +484,8 @@ int main() {
 					} else {
 						cout << "\nInvalid option, please enter one of the listed options!\n";
 					}
-			//	}
-			//}
+				}
+			}
 		}
 	}
 	else cout << "\nUser not found!!\n\n";
