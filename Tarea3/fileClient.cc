@@ -389,11 +389,7 @@ int main() {
 	socket broker_socket(ctx, socket_type::req);
 	socket s(ctx, socket_type::dealer);
 
-	zmq_pollitem_t standardin;
-	standardin.socket = NULL;
-	standardin.fd = 0;
-	standardin.events = poller::poll_in;
-
+	int standardin = fileno(stdin);
 	poller p;
 
 	p.add(broker_socket, poller::poll_in);
