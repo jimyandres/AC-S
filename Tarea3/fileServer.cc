@@ -7,8 +7,8 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-#include <json/json.h>
-#include <json/writer.h>
+#include <jsoncpp/json/json.h>
+#include <jsoncpp/json/writer.h>
 
 #include <openssl/sha.h>
 
