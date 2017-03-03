@@ -390,6 +390,19 @@ void deleteFile(socket &s, string op, string username) {
 	cout << "Deleting file \"" << filename << "\": " << status << endl;
 }
 
+void messageHandler(message &server_response, socket &s) {
+	string op, empty;
+	server_response >> empty >> op;
+
+	if(op == "Upload") {
+		ReadFile(server_response, s);
+	} else if(op == "Download") {
+		SaveFile(server_response, s);
+	} else {
+		cout << "Message unknown: " << op << endl;
+	}
+}
+
 int main() {
 
 	message login, response, create_user;
