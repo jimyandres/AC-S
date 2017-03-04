@@ -25,6 +25,55 @@ void printChecksum (unsigned char * check_sum) {
     printf("%s\n", mdString);
 }
 
+void getCheckSum(string path, unsigned char *check_sum) {
+	FILE* f;
+	char *data;
+	SHA_CTX sha_ctx;
+
+	if(!(f = fopen(path.c_str(), "rb"))) {
+		memset(check_sum, '0', SHA_DIGEST_LENGTH);
+		return;
+	}
+
+	SHA1_Init(&sha_ctx);
+	size_t size;
+	while(true) {
+		data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
+		size = fread(data, 1, CHUNK_SIZE, f);
+		SHA1_Update(&sha_ctx, data, size);
+		if(size == 0 || size < CHUNK_SIZE)
+			break;
+		free(data);
+	}
+	fclose(f);
+	SHA1_Final(check_sum, &sha_ctx);
+	cout << "Calculated check sum: ";
+	printChecksum(check_sum);
+}
+
+void CheckFile(message &client_request, string path, message &server_response) {
+	message check_sum_msg;
+	unsigned char check_sum[SHA_DIGEST_LENGTH];
+	unsigned char *received_check_sum = NULL;
+
+	received_check_sum = (unsigned char *)client_request.raw_data(8);
+	cout << "Received Check sum: ";
+	printChecksum(received_check_sum);
+
+	getCheckSum(path, (unsigned char *)&check_sum);
+
+	if(memcmp(received_check_sum, check_sum, SHA_DIGEST_LENGTH)) {
+		if( remove(path.c_str()) != 0 )
+			cout << "Error deleting file: " << path << endl;
+		else
+			cout << "File: " << path << " successfully deleted\n";
+		cout << "Error" << endl;
+		server_response << "Error" << "Checksum failed, \"" + path + "\"deleted";
+	} else {
+		server_response << "UpDone" << path;
+	}
+}
+
 void listFiles(message &m, message &response, socket &s, string client_id) {
 	string files, user, path;
 
@@ -77,112 +126,54 @@ void deleteFile(message &m, message &response, socket &s, string client_id) {
 }
 
 void uploadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address) {
-	string fname, path, username;
-	size_t size, total, size_sha1;
-	char * data, *data_sha1 = NULL;
+	string fname, path, username, fname_client;
+	size_t size, total;
+	char * data;
 	FILE * f;
 	int chunk_size;
-	long sz;
+	long file_size;
 	message exit_signal;
 
-	unsigned char check_sum[SHA_DIGEST_LENGTH];
-	unsigned char *received_check_sum;
-
-	client_request >> username;
-	client_request >> fname;
-
-	path = "Uploads/" + username + "/";
-
-	path.append(fname);
-
-	cout << "Path: " << path.c_str() << endl;
 	server_response << client_id << "";
 
-	if(client_request.get(5) == "Check") {
-		received_check_sum = (unsigned char *)client_request.raw_data(6);
-		cout << "Received check sum: ";
-		printChecksum(received_check_sum);
-
-		if(!(f = fopen(path.c_str(), "rb"))) {
-			server_response << "Error" << 0;
-			s.send(server_response);
-			exit_signal << "Disconnect" << download_address;
-			s.send(exit_signal);
-			return;
-		}
-
-		fflush(f);
-		fseek(f, 0L, SEEK_END);
-		sz = ftell(f);
-		fseek(f, 0L, SEEK_SET);
-
-		data_sha1 = (char*) malloc (sizeof(char)*sz);
-		size_sha1 = fread(data_sha1, 1, sz, f);
-
-		SHA1((unsigned char *)data_sha1, size_sha1, (unsigned char *)&check_sum);
-		free(data_sha1);
-		fclose(f);
-
-		cout << "Calculated check sum: ";
-		printChecksum(check_sum);
-
-		if(memcmp(received_check_sum, check_sum, SHA_DIGEST_LENGTH)) {
-			if( remove(path.c_str()) != 0 )
-				cout << "Error deleting file: " << path << endl;
-			else
-				cout << "File: " << path << " successfully deleted\n";
-
-			cout << "Error" << endl;
-			server_response << "Error" << 1;
-			s.send(server_response);
-			exit_signal << "Disconnect" << download_address;
-			s.send(exit_signal);
-			fclose(f);
-			return;
-		}
-		cout << "File saved!" << endl;
-
-		server_response << "ok";
-		s.send(server_response);
-		return;
-	}
-
-	client_request >> chunk_size;
+	client_request >> username;
+	client_request >> fname_client;
+	client_request >> fname;
+	path = "Uploads/" + username + "/";
+	path.append(fname);
+	cout << "Path: " << path.c_str() << endl;
+	client_request >> file_size;
 	client_request >> total;
 
 	if (total == 0)
 		f = fopen(path.c_str(), "wb");
-	else {
+	else if((int)total == file_size) {
+		CheckFile(client_request, path, server_response);
+		server_response << download_address;
+		s.send(server_response);
+		return;
+	} else {
 		f = fopen(path.c_str(), "ab");
 		fseek(f, 0L, SEEK_END);
 	}
 
-	assert(f);
-	fflush(f);
+	client_request >> chunk_size;
 
-	size = client_request.size(7);
+	size = client_request.size(9);
 
-	data = (char*)client_request.raw_data(7);
+	data = (char*)client_request.raw_data(9);
 	fwrite(data, 1, size, f);
 	fclose(f);
-
-	if (size == 0 || (int)size < chunk_size) {
-		server_response << "Done";
-		s.send(server_response);
-		exit_signal << "Disconnect" << download_address;
-		s.send(exit_signal);
-	} else {
-		cout << "Saving file...\n";
-		server_response << "ok";
-		s.send(server_response);
-	}	
+	total += size;
+	server_response << "Upload" << fname_client << fname << total << file_size;
+	s.send(server_response);
 }
 
 void downloadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address) {
 	string op = "Download";
 	FILE* f;
-	char *data_sha1 = NULL, *data;
-	size_t size, size_sha1, offset;
+	char *data;
+	size_t size, offset;
 	long sz;
 	message exit_signal;
 
@@ -193,56 +184,37 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	client_request >> username;
 	client_request >> fname;
 	client_request >> offset;
+	client_request >> sz;
 
 	path = "Uploads/" + username + "/";
 
 	path.append(fname);
 
 	if(!(f = fopen(path.c_str(), "rb"))) {
-
-		cout << "Error" << endl;
-		server_response << client_id << "" << op << "Error" << 0;
+		server_response << client_id << "" << "Error" << "The file \"" + fname + "\" requested does not exist or couldn't be read!!" << download_address;
 		s.send(server_response);
-		exit_signal << "Disconnect" << download_address;
-		s.send(exit_signal);
 		return;
 	}
 
 	server_response << client_id << "" << op << fname;
 	fflush(f);
-	fseek(f, 0L, SEEK_END);
-	sz = ftell(f);
-	fseek(f, 0L, SEEK_SET);
 
 	server_response << offset;
+	if(sz < 0) {
+		fseek(f, 0L, SEEK_END);
+		sz = ftell(f);
+		fseek(f, 0L, SEEK_SET);
+	}
 	server_response << sz;
+
 	if(offset == 0) {
 		cout <<"File size in bytes: " << sz << endl;
 	} else if((int)offset == sz) {
-
-		data_sha1 = (char*) malloc (sizeof(char)*sz);
-		size_sha1 = fread(data_sha1, 1, sz, f);
-
-		SHA1((unsigned char *)data_sha1, size_sha1, (unsigned char *)&check_sum);
-		free(data_sha1);
-
-		cout << "Calculated check sum: ";
-		printChecksum(check_sum);
-
-		server_response.push_back(check_sum, SHA_DIGEST_LENGTH);
-
-		//server_response << download_address;
-
 		fclose(f);
-
-		if(s.send(server_response)) {
-			cout << "File \"" << fname << "\" has been sended successfully\n";
-		} else {
-			cout << "File \"" << fname << "\"Data\" hasnt been sended successfully\n";
-		}
-
-		exit_signal << "Disconnect" << download_address;
-		s.send(exit_signal);
+		getCheckSum(path, (unsigned char *)&check_sum);
+		server_response.push_back(check_sum, SHA_DIGEST_LENGTH);
+		server_response.push_back(download_address);
+		s.send(server_response);
 		return;
 	}
 
@@ -258,11 +230,7 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 
 	fclose(f);
 	free(data);
-	if(s.send(server_response)) {
-		cout << "message sended" << endl;
-	} else {
-		cout << "message failed" << endl;
-	}
+	s.send(server_response);
 }
 
 void createUser(message &m, message &response, socket &s, string client_id) {
@@ -345,7 +313,8 @@ void messageHandler(message &client_request, message &server_response, socket &s
 	} else if(op == "Delete") {
 		deleteFile(client_request, server_response, s, client_id);
 	} else {
-		server_response << client_id << "" << "Error";
+		server_response << client_id << "" << "Error" << "Invalid option";
+		s.send(server_response);
 	}
 }
 

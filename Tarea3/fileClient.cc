@@ -15,10 +15,6 @@
 using namespace std;
 using namespace zmqpp;
 
-//bool DOWNLOADING=false;
-/*size_t total_downloaded = 0, chunks_downloaded = 0;
-long file_size=0;*/
-
 void printChecksum (unsigned char * check_sum) {
 	char mdString[SHA_DIGEST_LENGTH*2+1];
  
@@ -34,22 +30,10 @@ void printMenu() {
 	cout << "\n";
 }
 
-/*void getFileName(char fname[100], char file_name[100]) {
-	char *temp_pt = strrchr(fname, '/');
-	if(temp_pt == NULL) {
-		strcpy (file_name, fname);
-	} else {
-		//cout << strlen(fname) << endl;
-		size_t pos = temp_pt-fname+1, j=0;
-		while(pos < strlen(fname)) {
-			file_name[j] = fname[pos];
-			pos++;
-			j++;
-		}
-		file_name[j] = '\0';
-	}
-	//cout << "file: " << file_name << endl;
-}*/
+void disconnectFromServer(socket &s, string address) {
+	cout << "Disconnected from " << address << endl;
+	//s.disconnect(address);
+}
 
 void getFileName(string fname, char file_name[100]) {
 	char * tmp = new char[fname.size()+1];
@@ -58,12 +42,11 @@ void getFileName(string fname, char file_name[100]) {
 	if(temp_pt == NULL) {
 		strcpy (file_name, tmp);
 	} else {
-		//cout << strlen(fname) << endl;
+
 		size_t pos = temp_pt-tmp+1;
 		strcpy(file_name, &tmp[pos]);
 	}
 	delete [] tmp;
-	//cout << "file: " << file_name << endl;
 }
 
 void getCheckSum(string path, unsigned char *check_sum) {
@@ -93,34 +76,12 @@ void getCheckSum(string path, unsigned char *check_sum) {
 }
 
 void CheckFile(message &server_response, string path) {
-	message check_sum_msg;
-	//string empty;
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	unsigned char *received_check_sum = NULL;
-
-	//download_socket.receive(check_sum_msg);
-
-	//check_sum_msg >> empty >> fname;
 
 	received_check_sum = (unsigned char *)server_response.raw_data(5);
 	cout << "Received Check sum: ";
 	printChecksum(received_check_sum);
-
-	/*struct passwd *pw = getpwuid(getuid());
-	const char *homedir = pw->pw_dir;
-
-	path = (string)homedir + "/Descargas/Downloads/";
-
-	struct stat sb;
-	lstat(path.c_str(), &sb);
-
-	if(!S_ISDIR(sb.st_mode)) {
-		string url = "mkdir -p " + (string)path;
-		const char * directory =  url.c_str();
-		system(directory);
-	}
-
-	path.append(fname);*/
 
 	getCheckSum(path, (unsigned char *)&check_sum);
 
@@ -129,32 +90,58 @@ void CheckFile(message &server_response, string path) {
 		if( remove(path.c_str()) != 0 )
 			cout << "Error deleting file: " << path << endl;
 		else
-			cout << "File: " << path << " successfully deleted\n";
+			cout << "File: \"" << path << "\" successfully deleted\n";
 	} else {
-		cout << "File saved successfully!!\n";
+		cout << "File \"" << path << "\" saved successfully!!\n";
 	}
 }
 
 void ReadFile(message &answer, socket &upload_socket, string username) {
+	FILE* f;
+	string path, fname;
+	size_t offset, size;
+	long file_size;
+	char *data;
+	unsigned char check_sum[SHA_DIGEST_LENGTH];
+	message file_message;
 
+	answer >> path;
+	answer >> fname;
+	answer >> offset;
+	answer >> file_size;
+	file_message << "" << "Upload" << username << path << fname << file_size << offset;
+
+	if((int)offset == file_size) {
+		getCheckSum(path, (unsigned char *)&check_sum);
+		file_message.push_back(check_sum, SHA_DIGEST_LENGTH);
+		upload_socket.send(file_message);
+		return;
+	}
+
+	if(!(f = fopen(path.c_str(), "rb"))) {
+		cout << "\nThe file " << path << " requested does not exist or couldn't be read!!" << endl;
+		return;
+	}
+	fflush(f);
+	fseek(f, offset, SEEK_SET);
+	data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
+	size = fread(data, 1, CHUNK_SIZE, f);
+	
+	file_message << CHUNK_SIZE;
+	file_message.push_back(data, size);
+	free(data);
+	upload_socket.send(file_message);
 }
 
 void SaveFile(message &answer, socket &download_socket, string username) {
 	message req_check_sum, metadata_file;
-	string path, fname, empty, server_address = "";
+	string path, fname, server_address;
 	size_t size, offset;
 	int size_chunk;
 	char *data;
 	FILE* f;
-	double progress;
+	//double progress;
 	long file_size;
-
-	if(answer.get(2) == "Error") {
-		if(atoi(answer.get(3).c_str()) == 0) {
-			cout << "\nThe file " << fname << " requested does not exist or couldn't be read!!" << endl;
-			return;
-		}
-	}
 
 	answer >> fname;
 	struct passwd *pw = getpwuid(getuid());
@@ -177,7 +164,8 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 		f = fopen(path.c_str(), "wb");
 	} else if((int)offset == file_size) {
 		CheckFile(answer, path);
-		//req_check_sum << "" << "Download" << username << ;
+		server_address = answer.get(6);
+		disconnectFromServer(download_socket, server_address);
 		return;
 	} else {
 		f = fopen(path.c_str(), "ab");
@@ -192,19 +180,19 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	offset += size;
 	fclose(f);
 
-	progress = ((double)offset/(double)file_size);
+	/*progress = ((double)offset/(double)file_size);
 	if((progress*100.0) <= 100.0){
 		printf("\r[%3.2f%%]",progress*100.0);
 	}
-	fflush(stdout);
+	fflush(stdout);*/
 
 	if (size == 0 || (int)size < size_chunk) {
 		cout << endl;
 		cout << "Bytes received: " << offset << endl;
-		req_check_sum << "" << "Download" << username << fname << offset;
+		req_check_sum << "" << "Download" << username << fname << offset << file_size;
 		download_socket.send(req_check_sum);
 	} else {
-		metadata_file << "" << "Download" << username << fname << offset;
+		metadata_file << "" << "Download" << username << fname << offset << file_size;
 		download_socket.send(metadata_file);
 	}
 }
@@ -217,38 +205,41 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	cout << "Enter file name: \n";
 	getline(cin, fname);
 
-	cout << "enter server address: " << endl; //send req to broker
+	if(fname == "cancel" || fname == "q") {
+		cout << "Canceled action!!" << endl;
+		return;
+	}
+
+	cout << "Enter server address: " << endl; //send req to broker
 	cin >> server_address; //rec response from broker
 	download_socket.connect(server_address); //connect to server
 
-	cout << "Saving to file..." << endl;
 	size_t offset = 0;
+	long file_size = -1;
 
-	metadata_file << "" << op << username << fname << offset;
-	if(download_socket.send(metadata_file)) {
-		cout << "request sended" << endl;
-	} else {
-		cout << "request failed" << endl;
-	}
+	cout << "Saving..." << endl;
+	metadata_file << "" << op << username << fname << offset << file_size;
+	download_socket.send(metadata_file);
 }
 
-void uploadFile(socket &broker_socket, socket &download_socket, string op, string username) {
+void uploadFile(socket &broker_socket, socket &upload_socket, string op, string username) {
 	FILE* f;
 	char *data;
 	size_t size, offset;
 	char file_name[100];
 	message file_message, server_answer, check_sum_msg;
-	double progress;
 	string empty, server_address, fname;
-
-	unsigned char check_sum[SHA_DIGEST_LENGTH];
 
 	cout << "Enter file name: \n";
 	getline(cin, fname);
 
+	if(fname == "cancel" || fname == "q") {
+		cout << "Canceled action!!" << endl;
+		return;
+	}
+
 	cout << "enter server address: " << endl; //send req to broker
 	cin >> server_address; //rec response from broker
-	download_socket.connect(server_address); //connect to server
 
 	getFileName(fname, file_name);
 
@@ -257,81 +248,24 @@ void uploadFile(socket &broker_socket, socket &download_socket, string op, strin
 		return;
 	}
 	fflush(f);
+	upload_socket.connect(server_address); //connect to server
 
 	fseek(f, 0L, SEEK_END);
 	long sz = ftell(f);
 	cout << "\nFile size (bytes): " << sz << endl;
 	fseek(f, 0L, SEEK_SET);
 
-	cout << "File to upload: " << file_name << endl;
-	SHA_CTX sha_ctx;
-	SHA1_Init(&sha_ctx);
-
 	offset = 0;
-	while(true) {
-		fseek(f, offset, SEEK_SET);
-		data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
-		assert(data);
 
-		size = fread(data, 1, CHUNK_SIZE, f);
-		SHA1_Update(&sha_ctx, data, size);
+	cout << "File to upload: " << file_name << endl;
+	file_message << "" << op << username << fname << file_name << sz << offset << CHUNK_SIZE;
 
-		file_message << "" << op << username << file_name << CHUNK_SIZE << offset;
+	data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
+	size = fread(data, 1, CHUNK_SIZE, f);
+	file_message.push_back(data, size);
+	free(data);
 
-		file_message.push_back(data, size);
-		free(data);
-
-		download_socket.send(file_message);
-
-		download_socket.receive(server_answer);
-
-		server_answer >> empty;
-
-		offset += size;
-		progress = ((double)offset/(double)sz);
-		if((progress*100.0) <= 100.0){
-			printf("\r[%3.2f%%]",progress*100.0);
-		}
-		fflush(stdout);
-
-		if(server_answer.get(1) == "Error") {
-			if(atoi(server_answer.get(2).c_str()) == 0) {
-			cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
-			return;
-			}
-		} else if(server_answer.get(1) == "Done") {
-			fclose(f);
-			break;
-		}
-	}
-
-	SHA1_Final(check_sum, &sha_ctx);
-
-    cout << "\nCalculated check sum: ";
-	printChecksum(check_sum);
-
-	check_sum_msg << "" << op << username << file_name << "Check";
-
-    check_sum_msg.push_back(check_sum, SHA_DIGEST_LENGTH);
-
-    download_socket.send(check_sum_msg);
-
-	download_socket.receive(server_answer);
-
-	server_answer >> empty;
-
-	if(server_answer.get(1) == "Error") {
-		if(atoi(server_answer.get(2).c_str()) == 0) {
-			cout << "\nThe file requested does not exist or couldn't be read!!" << endl;
-			return;
-		} else if(atoi(server_answer.get(2).c_str()) == 1) {
-			cout << "\nThe Checksum failed, please try again!!" << endl;
-		}
-	}
-
-	if(server_answer.get(1) == "ok") {
-		cout << "File has been uploaded successfully!!" << endl;
-	}
+	upload_socket.send(file_message);
 }
 
 void listFiles(socket &s, string op, string username) {
@@ -349,12 +283,14 @@ void listFiles(socket &s, string op, string username) {
 
 void deleteFile(socket &s, string op, string username) {
 	message request, response;
-	string status;
-	char filename[100];
+	string status, filename;
 
 	cout << "Enter File name: \n";
-	cin.getline(filename, sizeof(filename));
-	cin.getline(filename, sizeof(filename));
+	getline(cin, filename);
+	if(filename == "cancel" || filename == "q") {
+		cout << "Canceled action!!" << endl;
+		return;
+	}
 
 	request << op << username << filename;
 	s.send(request);
@@ -365,18 +301,27 @@ void deleteFile(socket &s, string op, string username) {
 }
 
 void messageHandler(message &server_response, socket &s, string username) {
-	string op, empty, address;
+	string op, empty, address, msg, path, server_address;
 	server_response >> empty >> op;
+	message disconnect;
 
 	if(op == "Upload") {
 		ReadFile(server_response, s, username);
 	} else if(op == "Download") {
 		SaveFile(server_response, s, username);
-	} else if(op == "Disconnect") {
-		server_response >> address;
-		s.disconnect(address);
-	}
-	else {
+	} else if(op == "Error") {
+		server_response >> msg;
+		cout << "Error: " << msg << endl;
+		server_response >> server_address;
+		disconnectFromServer(s, server_address);
+	} else if(op == "UpDone") {
+		char file_name[100];
+		server_response >> path;
+		getFileName(path, file_name);
+		cout << "\"" << file_name << "\" successfully uploaded!!" << endl;
+		server_response >> server_address;
+		disconnectFromServer(s, server_address);
+	} else {
 		cout << "Message unknown: " << op << endl;
 	}
 }
@@ -401,7 +346,6 @@ int main() {
 	p.add(broker_socket, poller::poll_in);
 	p.add(standardin, poller::poll_in);
 	p.add(s, poller::poll_in);
-	//p.add(s, poller::poll_out);
 
 	cout << "Connecting to tcp port 5555\n";
 	broker_socket.connect("tcp://localhost:5555");
@@ -452,10 +396,8 @@ int main() {
 		printMenu();
 		cout <<  "\nEnter action to perform: " << endl;
 		while(true) {
-			//cin >> op;
 			if(p.poll()) {
 				if(p.has_input(broker_socket)) {
-					//do something eith message
 					cout <<"Message" << endl;
 				}
 				if(p.has_input(standardin)) {
@@ -477,17 +419,9 @@ int main() {
 					}
 				}
 				if(p.has_input(s)){
-					if(s.receive(server_response)) {
-						cout << "response received" << endl;
-					} else {
-						cout << "failed to retrieve response" << endl;
-					}
-					messageHandler(server_response, s, username);
-				}
-				/*if(p.has_output(s)){
 					s.receive(server_response);
 					messageHandler(server_response, s, username);
-				}*/
+				}
 			}
 		}
 	}
