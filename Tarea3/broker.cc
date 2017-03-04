@@ -27,7 +27,7 @@ void loadUsersFilesInfo (json& users, json& files) {
 	usr >> users;
 
 	ifstream fls("files.json");
-	fls >> files
+	fls >> files;
 }
 
 void saveUsersFilesInfo (json& users, json& files) {
@@ -42,35 +42,23 @@ void saveUsersFilesInfo (json& users, json& files) {
 }
 
 void listFiles(message& m, message& response, socket& s, json& users) {
-	string filename, username;
+	string files, username;
 
 	m >> username;
 
-
-
-	DIR *dir;
-	struct dirent *ent;
-	path = "Uploads/" + user;
-	const char * url =  path.c_str();
-	if ((dir = opendir (url)) != NULL) {
-		/* print all the files and directories within directory */
-		while ((ent = readdir (dir)) != NULL) {
-			files += "\t";
-			files += ent->d_name;
-			files += "\n";
-			//printf ("%s\n", ent->d_name);
-		}
-		files += "\n";
-		closedir (dir);
-
-	} else {
-	  /* could not open directory */
-		perror ("");
-	  //return EXIT_FAILURE;
+	// Get list of files
+	for (json::iterator it = users[username]["files"].begin(); it != users[username]["files"].end(); it++) {
+		files += "\t";
+		files += it.key() ;
+		files += "\t";	
 	}
-	response << files;
-	s.send(response);
+	files += "\n";
 
+	// Send list of files to Client
+
+	// --F
+
+	return;
 }
 
 void deleteFile(message& m, message& response, socket& s, json& users, json& files) {
@@ -90,7 +78,8 @@ void deleteFile(message& m, message& response, socket& s, json& users, json& fil
 	users[username]["files"].erase(users[username]["files"].find(filename));
 
 	// Reduce owners to the file
-	int owners = files[SHA1]["owners"] - 1;
+	int owners = files[SHA1]["owners"];
+	owners -= 1;
 
 	// Send Message Delete file to serverLocation, if there are no more owners of the file
 	if (!owners)  {
@@ -177,7 +166,8 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 		// Update Info 
 		users[username]["files"][fname] = SHA1;
 
-		owners += files[SHA1]["owners"];
+		owners = files[SHA1]["owners"];
+		owners += 1;
 		files[SHA1]["owners"] = owners;
 
 		saveUsersFilesInfo(users, files);
