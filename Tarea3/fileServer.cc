@@ -3,7 +3,6 @@
 #include <string>
 #include <fstream>
 #include <zmqpp/zmqpp.hpp>
-#include <zmq.h>
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -77,13 +76,14 @@ void deleteFile(message &m, message &response, socket &s, string client_id) {
 	s.send(response);
 }
 
-void uploadFile(message &client_request, message &server_response, socket &s, string client_id) {
+void uploadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address) {
 	string fname, path, username;
 	size_t size, total, size_sha1;
 	char * data, *data_sha1 = NULL;
 	FILE * f;
 	int chunk_size;
 	long sz;
+	message exit_signal;
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	unsigned char *received_check_sum;
@@ -106,6 +106,8 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 		if(!(f = fopen(path.c_str(), "rb"))) {
 			server_response << "Error" << 0;
 			s.send(server_response);
+			exit_signal << "Disconnect" << download_address;
+			s.send(exit_signal);
 			return;
 		}
 
@@ -133,6 +135,8 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 			cout << "Error" << endl;
 			server_response << "Error" << 1;
 			s.send(server_response);
+			exit_signal << "Disconnect" << download_address;
+			s.send(exit_signal);
 			fclose(f);
 			return;
 		}
@@ -165,6 +169,8 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	if (size == 0 || (int)size < chunk_size) {
 		server_response << "Done";
 		s.send(server_response);
+		exit_signal << "Disconnect" << download_address;
+		s.send(exit_signal);
 	} else {
 		cout << "Saving file...\n";
 		server_response << "ok";
@@ -172,11 +178,13 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	}	
 }
 
-void downloadFile(message &client_request, message &server_response, socket &s, string client_id) {
+void downloadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address) {
+	string op = "Download";
 	FILE* f;
 	char *data_sha1 = NULL, *data;
 	size_t size, size_sha1, offset;
 	long sz;
+	message exit_signal;
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 
@@ -193,20 +201,25 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	if(!(f = fopen(path.c_str(), "rb"))) {
 
 		cout << "Error" << endl;
-		server_response << client_id << "" << "Error" << 0;
+		server_response << client_id << "" << op << "Error" << 0;
 		s.send(server_response);
+		exit_signal << "Disconnect" << download_address;
+		s.send(exit_signal);
 		return;
 	}
 
-	server_response << client_id << "" << fname;
+	server_response << client_id << "" << op << fname;
 	fflush(f);
 	fseek(f, 0L, SEEK_END);
 	sz = ftell(f);
 	fseek(f, 0L, SEEK_SET);
+
+	server_response << offset;
+	server_response << sz;
 	if(offset == 0) {
 		cout <<"File size in bytes: " << sz << endl;
-		server_response << sz;
 	} else if((int)offset == sz) {
+
 		data_sha1 = (char*) malloc (sizeof(char)*sz);
 		size_sha1 = fread(data_sha1, 1, sz, f);
 
@@ -218,6 +231,8 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 
 		server_response.push_back(check_sum, SHA_DIGEST_LENGTH);
 
+		//server_response << download_address;
+
 		fclose(f);
 
 		if(s.send(server_response)) {
@@ -225,6 +240,9 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 		} else {
 			cout << "File \"" << fname << "\"Data\" hasnt been sended successfully\n";
 		}
+
+		exit_signal << "Disconnect" << download_address;
+		s.send(exit_signal);
 		return;
 	}
 
@@ -240,7 +258,11 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 
 	fclose(f);
 	free(data);
-	s.send(server_response);
+	if(s.send(server_response)) {
+		cout << "message sended" << endl;
+	} else {
+		cout << "message failed" << endl;
+	}
 }
 
 void createUser(message &m, message &response, socket &s, string client_id) {
@@ -304,7 +326,7 @@ void verifyUser(message &m, message &response, socket &s, string client_id) {
 	s.send(response);
 }
 
-void messageHandler(message &client_request, message &server_response, socket &s) {
+void messageHandler(message &client_request, message &server_response, socket &s, string socket_address) {
 	string op, client_id, empty;
 	client_request >> client_id >> empty >> op;
 
@@ -315,9 +337,9 @@ void messageHandler(message &client_request, message &server_response, socket &s
 	} else  if(op == "Login") {
 		verifyUser(client_request, server_response, s, client_id);
 	} else  if(op == "Upload") {
-		uploadFile(client_request, server_response, s, client_id);
+		uploadFile(client_request, server_response, s, client_id, socket_address);
 	} else if(op == "Download") {
-		downloadFile(client_request, server_response, s, client_id);
+		downloadFile(client_request, server_response, s, client_id, socket_address);
 	} else if(op == "List_files") {
 		listFiles(client_request, server_response, s, client_id);
 	} else if(op == "Delete") {
@@ -329,6 +351,7 @@ void messageHandler(message &client_request, message &server_response, socket &s
 
 int main(int argc, char* argv[]) {
 	string server_address = "tcp://";
+	string download_address = "tcp://*:5556";
 
 	if (argc != 2) {
 		cout << "Please use like this: ./fileServer localhost:5555\n";
@@ -347,7 +370,7 @@ int main(int argc, char* argv[]) {
 
 	cout << "Binding socket to tcp port 5555\n";
 	s.bind(server_address);
-	down.bind("tcp://*:5556");
+	down.bind(download_address);
 
 	poller p;
 
@@ -374,7 +397,7 @@ int main(int argc, char* argv[]) {
 
 				cout << "Message received!\n";
 
-				messageHandler(client_request, server_response, s);
+				messageHandler(client_request, server_response, s, "");
 			}
 			if(p.has_input(down)) {
 
@@ -383,7 +406,7 @@ int main(int argc, char* argv[]) {
 
 				cout << "Message received!\n";
 
-				messageHandler(client_request, server_response, down);
+				messageHandler(client_request, server_response, down, download_address);
 			}
 			if(p.has_input(standardin)) {
 				string input;
