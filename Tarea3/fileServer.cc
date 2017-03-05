@@ -31,6 +31,20 @@ void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH
         sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
 }
 
+void getFileName(string fname, char file_name[100]) {
+	char * tmp = new char[fname.size()+1];
+	memcpy(tmp, fname.c_str(), fname.size()+1);
+	char *temp_pt = strrchr(tmp, '/');
+	if(temp_pt == NULL) {
+		strcpy (file_name, tmp);
+	} else {
+
+		size_t pos = temp_pt-tmp+1;
+		strcpy(file_name, &tmp[pos]);
+	}
+	delete [] tmp;
+}
+
 void getCheckSum(string path, unsigned char *check_sum) {
 	FILE* f;
 	char *data;
@@ -55,19 +69,18 @@ void getCheckSum(string path, unsigned char *check_sum) {
 	SHA1_Final(check_sum, &sha_ctx);
 }
 
-bool CheckFile(message &client_request, string path, message &server_response) {
+bool CheckFile(message &client_request, string path, message &server_response, char fname[100]) {
 	message check_sum_msg;
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	unsigned char *received_check_sum = NULL;
 
 	received_check_sum = (unsigned char *)client_request.raw_data(8);
-	cout << "Received Check sum: ";
-	printChecksum(received_check_sum);
+	// cout << "Received Check sum: ";
+	// printChecksum(received_check_sum);
 
 	getCheckSum(path, (unsigned char *)&check_sum);
-
-	cout << "Calculated check sum: ";
-	printChecksum(check_sum);
+	// cout << "Calculated check sum: ";
+	// printChecksum(check_sum);
 
 	if(memcmp(received_check_sum, check_sum, SHA_DIGEST_LENGTH)) {
 		if( remove(path.c_str()) != 0 )
@@ -75,10 +88,13 @@ bool CheckFile(message &client_request, string path, message &server_response) {
 		else
 			cout << "File: " << path << " successfully deleted\n";
 		cout << "Error" << endl;
-		server_response << "Error" << "Checksum failed, \"" + path + "\"deleted";
+		string msg = "Checksum failed, \"";
+		msg.append(fname);
+		msg.append("\" deleted");
+		server_response << "Error" << msg;
 		return false;
 	} else {
-		server_response << "UpDone" << path;
+		server_response << "UpDone" << fname;
 		return true;
 	}
 }
@@ -109,26 +125,35 @@ void updateDiskUsage (long fileSize) {
 	return;
 }
 
-void deleteFile(message &m, message &response, socket &s, string client_id) {
-	string user, filename, l;
+void deleteFile(message &m, message &response, socket &s, string client_id, string download_address, socket &broker) {
+	string user, filename, l, ans;
 	long fileSize;
+	message request_broker, response_broker;
 
-	m >> user;
 	m >> filename;
 	m >> fileSize;
 
 	l = "Uploads/" + filename;
-	response << client_id << "";
+	response << client_id << "" << "DeleteDone";
 
 	cout << "Deleting: " + l << endl;;
 	const char * location =  l.c_str();
 
 	if( remove( location ) != 0 ){
-		response << "Error deleting file\n";
+		response << "Error deleting file";
 	}
 	else {
-		response << "File successfully deleted\n";
-		updateDiskUsage(fileSize);
+		response << "File successfully deleted" << download_address;
+		updateDiskUsage(-1*fileSize);
+		request_broker << "UpdateInfo" << "Delete" << download_address << fileSize;
+		broker.send(request_broker); 
+		broker.receive(response_broker);
+		if(response_broker.get(0) == "Error") {
+			ans = response_broker.get(1);
+			cout << ans << endl;
+		} else if(response_broker.get(0) == "Updated") {
+			cout << "Updated on broker" << endl;
+		}
 	}
 	s.send(response);
 }
@@ -137,7 +162,7 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	string fname, path, username, fname_client, ans;
 	size_t size, total;
 	char * data;
-	char file_SHA1[SHA_DIGEST_LENGTH*2+1];
+	char file_SHA1[SHA_DIGEST_LENGTH*2+1], broker_fname[100];
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	FILE * f;
 	int chunk_size;
@@ -151,19 +176,19 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	client_request >> fname;
 	path = "Uploads/";
 	path.append(fname);
-	cout << "Path: " << path.c_str() << endl;
+	cout << "Path: " << path << endl;
 	client_request >> file_size;
 	client_request >> total;
 
 	if (total == 0)
 		f = fopen(path.c_str(), "wb");
 	else if((int)total == file_size) {
-		if(CheckFile(client_request, path, server_response)) {
+		getFileName(fname_client, broker_fname);
+		if(CheckFile(client_request, path, server_response, broker_fname)) {
 			updateDiskUsage(file_size);
-
 			getCheckSum(path, (unsigned char *)&check_sum);
 			ChecksumToString((unsigned char *)&check_sum, file_SHA1);
-			request_broker << "UpdateInfo" << "Upload" << username << fname << file_SHA1 << file_size << download_address;
+			request_broker << "UpdateInfo" << "Upload" << username << broker_fname << file_SHA1 << file_size << download_address;
 			broker.send(request_broker); 
 			broker.receive(response_broker);
 			if(response_broker.get(0) == "Error") {
@@ -190,8 +215,6 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	fclose(f);
 	total += size;
 
-	updateDiskUsage(file_size);
-
 	server_response << "Upload" << fname_client << fname << total << file_size;
 	s.send(server_response);
 }
@@ -206,9 +229,10 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 
-	string fname, path, username;
+	string fname, path, username, client_fname, ans;
 
 	client_request >> username;
+	client_request >> client_fname;
 	client_request >> fname;
 	client_request >> offset;
 	client_request >> sz;
@@ -223,15 +247,10 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 		return;
 	}
 
-	server_response << client_id << "" << op << fname;
+	server_response << client_id << "" << op << client_fname << fname;
 	fflush(f);
 
 	server_response << offset;
-	if(sz < 0) {
-		fseek(f, 0L, SEEK_END);
-		sz = ftell(f);
-		fseek(f, 0L, SEEK_SET);
-	}
 	server_response << sz;
 
 	if(offset == 0) {
@@ -241,6 +260,17 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 		getCheckSum(path, (unsigned char *)&check_sum);
 		server_response.push_back(check_sum, SHA_DIGEST_LENGTH);
 		server_response.push_back(download_address);
+		
+		request_broker << "UpdateInfo" << "Download" << fname << sz << download_address;
+		broker.send(request_broker); 
+		broker.receive(response_broker);
+		if(response_broker.get(0) == "Error") {
+			ans = response_broker.get(1);
+			cout << ans << endl;
+		} else if(response_broker.get(0) == "Updated") {
+			cout << "Updated on broker" << endl;
+		}
+
 		s.send(server_response);
 		return;
 	}
@@ -271,7 +301,7 @@ void messageHandler(message &client_request, message &server_response, socket &s
 	} else if(op == "Download") {
 		downloadFile(client_request, server_response, s, client_id, socket_address, broker);
 	} else if(op == "Delete") {
-		deleteFile(client_request, server_response, s, client_id);
+		deleteFile(client_request, server_response, s, client_id, socket_address, broker);
 	} else {
 		server_response << client_id << "" << "Error" << "Invalid option";
 		s.send(server_response);
@@ -281,14 +311,11 @@ void messageHandler(message &client_request, message &server_response, socket &s
 void registerToBroker(socket &broker, string address) {
 	json space;
 	long usage, bytes;
-	//fstream spc;
 	ifstream spc("dSpace.json");
-	//spc.open("dSpace.json", fstream::in | fstream::out | fstream::trunc);
-	//ofstream spc("dSpace.json");
 	
 	if(spc.good()) 
 		spc >> space;
-	if(space.find("diskSpace") != space.end()) {// && spc.is_open()) {
+	if(space.find("diskSpace") != space.end()) {
 		usage = space["diskSpace"];
 	}
 	else {
@@ -299,8 +326,6 @@ void registerToBroker(socket &broker, string address) {
 	bytes = 0;
 	message broker_register;
 	broker_register << "Add" << address << usage << bytes;
-	//spc.close();
-
 	broker.send(broker_register);
 }
 

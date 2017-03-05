@@ -29,6 +29,13 @@ void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH
         sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
 }
 
+// string appendExtension(char file_name[SHA_DIGEST_LENGTH*2+1], char extension[5]) {
+// 	string ans;
+// 	ans.insert(0, file_name, SHA_DIGEST_LENGTH*2);
+// 	ans.append(extension);
+// 	return ans;
+// }
+
 void printMenu() {
 	cout << "\n\n***********************************\n";
 	cout << "Enter action to perform: \n\tList_files\n\tDownload\n\tUpload\n\tDelete\n\tExit\n";
@@ -37,7 +44,7 @@ void printMenu() {
 
 void disconnectFromServer(socket &s, string address) {
 	cout << "Disconnected from " << address << endl;
-	//s.disconnect(address);
+	s.disconnect(address);
 }
 
 void getFileName(string fname, char file_name[100]) {
@@ -82,7 +89,7 @@ void CheckFile(message &server_response, string path) {
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	unsigned char *received_check_sum = NULL;
 
-	received_check_sum = (unsigned char *)server_response.raw_data(5);
+	received_check_sum = (unsigned char *)server_response.raw_data(6);
 	cout << "Received Check sum: ";
 	printChecksum(received_check_sum);
 
@@ -141,7 +148,7 @@ void ReadFile(message &answer, socket &upload_socket, string username) {
 
 void SaveFile(message &answer, socket &download_socket, string username) {
 	message req_check_sum, metadata_file;
-	string path, fname, server_address;
+	string path, fname, server_address, server_fname;
 	size_t size, offset;
 	int size_chunk;
 	char *data;
@@ -163,6 +170,7 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	}
 	path.append(fname);
 
+	answer >> server_fname;
 	answer >> offset;
 	answer >> file_size;
 
@@ -170,7 +178,7 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 		f = fopen(path.c_str(), "wb");
 	} else if((int)offset == file_size) {
 		CheckFile(answer, path);
-		server_address = answer.get(6);
+		server_address = answer.get(7);
 		disconnectFromServer(download_socket, server_address);
 		return;
 	} else {
@@ -179,8 +187,8 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	}
 
 	answer >> size_chunk;
-	size = answer.size(6);
-	data = (char*) answer.raw_data(6);
+	size = answer.size(7);
+	data = (char*) answer.raw_data(7);
 
 	fwrite(data, 1, size, f);
 	offset += size;
@@ -195,37 +203,49 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	if (size == 0 || (int)size < size_chunk) {
 		cout << endl;
 		cout << "Bytes received: " << offset << endl;
-		req_check_sum << "" << "Download" << username << fname << offset << file_size;
+		req_check_sum << "" << "Download" << username << fname << server_fname << offset << file_size;
 		download_socket.send(req_check_sum);
 	} else {
-		metadata_file << "" << "Download" << username << fname << offset << file_size;
+		metadata_file << "" << "Download" << username << fname << server_fname << offset << file_size;
 		download_socket.send(metadata_file);
 	}
 }
 
 void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
 	string server_address;
-	string path, fname;
-	message send_request, broker_response, metadata_file, req_check_sum;
+	string server_fname, fname;
+	message request_broker, response_broker, metadata_file, req_check_sum;
+	size_t offset = 0;
+	long file_size = -1;
 
 	cout << "Enter file name: \n";
 	getline(cin, fname);
+	//cin.ignore(numeric_limits<streamsize>::max(), '\n');
 
 	if(fname == "cancel" || fname == "q") {
 		cout << "Canceled action!!" << endl;
 		return;
 	}
 
-	cout << "Enter server address: " << endl; //send req to broker
+	request_broker << "Download" << username << fname;
+	broker_socket.send(request_broker);
+	broker_socket.receive(response_broker);
 
-	cin >> server_address; //rec response from broker
+	if(response_broker.get(0) == "Error") {
+		server_address = response_broker.get(1);
+		cout << "Error: " <<  server_address << endl;
+		return;
+	} else {
+		response_broker >> server_address;
+		response_broker >> file_size;
+		response_broker >> server_fname;
+		cout << "Connected to: " << server_address << endl;
+	}
+	
 	download_socket.connect(server_address); //connect to server
 
-	size_t offset = 0;
-	long file_size = -1;
-
 	cout << "Saving..." << endl;
-	metadata_file << "" << op << username << fname << offset << file_size;
+	metadata_file << "" << op << username << fname << server_fname << offset << file_size;
 	download_socket.send(metadata_file);
 }
 
@@ -235,9 +255,10 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 	size_t size, offset;
 	char file_name[100], file_SHA1[SHA_DIGEST_LENGTH*2+1];
 	message file_message, server_answer, check_sum_msg, request_broker, response_broker;
-	string empty, server_address, fname;
+	string empty, server_address, fname, server_fname;
+	//char extension[] = ".dat";
 
-	cout << "Enter file name: \n";
+	cout << "Enter file name: " << endl;
 	getline(cin, fname);
 
 	if(fname == "cancel" || fname == "q") {
@@ -279,11 +300,9 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 	}
 
 	upload_socket.connect(server_address); //connect to server
-
 	offset = 0;
-
-	cout << "File to upload: " << file_name << endl;
-	file_message << "" << op << username << fname << file_name << sz << offset << CHUNK_SIZE;
+	cout << "File to upload: " << file_name << "\n";
+	file_message << "" << op << username << fname << file_SHA1 << sz << offset << CHUNK_SIZE;
 
 	data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
 	size = fread(data, 1, CHUNK_SIZE, f);
@@ -302,12 +321,12 @@ void listFiles(socket &s, string op, string username) {
 	cout << "Files:" << endl;
 	s.receive(response);
 	response >> files;
-	cout << files;
+	cout << files << endl;
 }
 
-void deleteFile(socket &s, string op, string username) {
-	message request, response;
-	string status, filename;
+void deleteFile(socket &s, string op, string username, socket &server) {
+	message request, response, server_req;
+	string status, filename, server_address, server_fname, file_size, ans;
 
 	cout << "Enter File name: \n";
 	getline(cin, filename);
@@ -319,9 +338,20 @@ void deleteFile(socket &s, string op, string username) {
 	request << op << username << filename;
 	s.send(request);
 	s.receive(response);
-
-	response >> status;
-	cout << "Deleting file \"" << filename << "\": " << status << endl;
+	if(response.get(0) == "Done") {
+		status = response.get(1);
+		cout << "Deleting file \"" << filename << "\": " << status << endl;
+		return;
+	} else if(response.get(0) == "Error") {
+		ans = response.get(1);
+		cout << "Error: " << ans << endl;
+		return;
+	}
+	response >> server_fname >> file_size >> server_address;
+	cout << "Connected to: " << server_address << endl;
+	server.connect(server_address);
+	server_req << "" << "Delete" << server_fname << file_size;
+	server.send(server_req);
 }
 
 void messageHandler(message &server_response, socket &s, string username) {
@@ -343,6 +373,11 @@ void messageHandler(message &server_response, socket &s, string username) {
 		server_response >> path;
 		getFileName(path, file_name);
 		cout << "\"" << file_name << "\" successfully uploaded!!" << endl;
+		server_response >> server_address;
+		disconnectFromServer(s, server_address);
+	} else if(op == "DeleteDone") {
+		server_response >> msg;
+		cout << "Status: " << msg << endl;
 		server_response >> server_address;
 		disconnectFromServer(s, server_address);
 	} else {
@@ -413,7 +448,7 @@ int main(int argc, char* argv[]) {
 	    	cin >> password;
 	    	break;
 
-	    } else cout << "Invalid option!\n";
+	    } else cout << "Invalid option!" << endl;
 	}
 	cin.ignore(numeric_limits<streamsize>::max(), '\n');
 
@@ -443,18 +478,17 @@ int main(int argc, char* argv[]) {
 						getline(cin, op);
 						if(op == "Upload" || op == "upload" || op == "up") {
 							uploadFile(broker_socket, s, "Upload", username);
-							cin.ignore(numeric_limits<streamsize>::max(), '\n');
+							// cin.ignore(numeric_limits<streamsize>::max(), '\n');
 						} else if(op == "Download" || op == "download" || op == "down") {
 							downloadFile(broker_socket, s, "Download", username);
-							cin.ignore(numeric_limits<streamsize>::max(), '\n');
 						} else if(op == "List_files" || op == "list_files" || op == "ls") {
 							listFiles(broker_socket, "List_files", username);
 						} else if(op == "Delete" || op == "delete" || op == "del") {
-							deleteFile(broker_socket, "Delete", username);
+							deleteFile(broker_socket, "Delete", username, s);
 						} else if(op == "Exit" || op == "exit" || op == "ex") {
 							break;
 						} else {
-							cout << "\nInvalid option, please enter one of the listed options!\n";
+							cout << "\nInvalid option, please enter one of the listed options!" << endl;
 						}
 					}
 				}

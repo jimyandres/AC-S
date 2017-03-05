@@ -14,15 +14,6 @@ using namespace zmqpp;
 
 using json = nlohmann::json;
 
-// void printChecksum (const unsigned char * check_sum) {
-// 	char mdString[33];
- 
-//     for(int i = 0; i < 16; i++)
-//          sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
- 
-//     printf("%s\n", mdString);
-// }
-
 void HeapSort(MinHeap<Server> Heap) {
 	Server tmp;
 	if(Heap.getSize()==0) {
@@ -53,8 +44,8 @@ void saveUsersFilesInfo (json& users, json& files) {
 	usr << setw(4) << users << endl;
 	usr.close();
 
-	ofstream fl("users.json");
-	fl << setw(4) << users << endl;
+	ofstream fl("files.json");
+	fl << setw(4) << files << endl;
 	fl.close();
 
 }
@@ -69,11 +60,11 @@ void listFiles(message& m, message& response, socket& s, json& users) {
 		for (json::iterator it = users[username]["files"].begin(); it != users[username]["files"].end(); it++) {
 			files += "\t";
 			files += it.key() ;
-			files += "\t";	
+			files += "\n\t";	
 		}
 		files += "\n";
 	} else {
-		files = "No files found\n";
+		files = "No files found";
 	}
 	// Send list of files to Client
 	response << files;
@@ -83,46 +74,49 @@ void listFiles(message& m, message& response, socket& s, json& users) {
 
 void deleteFile(message& m, message& response, socket& s, json& users, json& files) {
 	string username, filename, SHA1, serverLocation;
+	size_t fileSize;
+	message request_delete, response_delete;
 
 	m >> username;
 	m >> filename;
 
 	// Obtain location of file to delete
-	SHA1 = users[username]["files"][filename];
-	serverLocation = files[SHA1]["location"];
+	if(users[username].count("files") && users[username]["files"].count(filename)) {
+		SHA1 = users[username]["files"][filename];
+		serverLocation = files[SHA1]["location"];
+		fileSize = files[SHA1]["size"];
+		// Update Info
 
+		// Delete association of file to User
+		users[username]["files"].erase(users[username]["files"].find(filename));
+		if(!users[username]["files"].size())
+			users[username].erase("files");
 
-	// Update Info
-
-	// Delete association of file to User
-	users[username]["files"].erase(users[username]["files"].find(filename));
-
-	// Reduce owners to the file
-	int owners = files[SHA1]["owners"];
-	owners -= 1;
-
-	// Send Message Delete file to serverLocation, if there are no more owners of the file
-	if (!owners)  {
-
-		// --F
-
-		files.erase(files.find(SHA1));
+		// Reduce owners to the file
+		int owners = files[SHA1]["owners"];
+		owners -= 1;
+		files[SHA1]["owners"] = owners;
+		// Send Message Delete file to serverLocation, if there are no more owners of the file
+		if (!owners)  {
+			response << SHA1 << fileSize << serverLocation;
+			files.erase(files.find(SHA1));
+		} else {
+			response << "Done" << "File successfully deleted";
+		}
+		saveUsersFilesInfo(users, files);
+	} else  {
+		response << "Error" << "The file \"" + filename + "\" requested does not exist or couldn't be read!!";
 	}
-
-	saveUsersFilesInfo(users, files);
-
-	// Send Ok message to Client
-
-	// --F
-
+	s.send(response);
 	return;
 }
 
 void updateInfo(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
 	string op, fname, username, SHA1, serverLocation;
-	size_t fileSize, diskSpace;
+	size_t fileSize;
 	int owners = 1;
 	Server tmp;
+	int query;
 
 	request >> op;
 
@@ -134,24 +128,18 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		request >> serverLocation;
 
 		// Update Priority queue (fileSize, diskSpace)
-		int query = servers_queue.search(serverLocation);
+		query = servers_queue.search(serverLocation);
 		if(query < 0) {
 			cout << "Server not registered!!" << endl;
 			response << "Error" << "Server not registered!!";
-			s.send(response);
 		} else {
-			//cout <<"server running in " << query_add << " is at index: " << query << endl;
 			tmp = servers_queue.deleteAt(query);
 			tmp.bytes_transmitting -= fileSize; 
 			tmp.space_used += fileSize;
 			tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
 			servers_queue.insert(tmp);
-			
 			response << "Updated";
-			s.send(response);
-			//HeapSort(servers_queue);
 		}
-		// --F
 
 		// Update File and User info
 		users[username]["files"][fname] = SHA1;
@@ -161,30 +149,51 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		files[SHA1]["size"] = fileSize;
 
 		saveUsersFilesInfo(users, files);
-
-		// Notify user
-
-		// --F
-
+		s.send(response);
 		return;
-	}
-	else if (op == "Download") {
+	} else if (op == "Download") {
 		request >> SHA1;
 		request >> fileSize;
 		request >> serverLocation;
-		request >> diskSpace;
+
 		// Update Priority queue (fileSize, diskSpace)
-
-		// --F
-
+		query = servers_queue.search(serverLocation);
+		if(query < 0) {
+			cout << "Server not registered!!" << endl;
+			response << "Error" << "Server not registered!!";
+			s.send(response);
+		} else {
+			tmp = servers_queue.deleteAt(query);
+			tmp.bytes_transmitting -= fileSize; 
+			tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+			servers_queue.insert(tmp);
+			response << "Updated";
+		}
+		s.send(response);
+		return;
+	} else if(op == "Delete") {
+		request >> serverLocation;
+		request >> fileSize;
+		query = servers_queue.search(serverLocation);
+		if(query < 0) {
+			cout << "Server not registered!!" << endl;
+			response << "Error" << "Server not registered!!";
+			s.send(response);
+		} else {
+			tmp = servers_queue.deleteAt(query);
+			tmp.space_used -= fileSize;
+			tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+			servers_queue.insert(tmp);
+			response << "Updated";
+		}
+		s.send(response);
+		return;
+	} else {
+		// Error notification
+		response << "Error" << "Option unkown";
+		s.send(response);
 		return;
 	}
-	else 
-		// Error notification
-
-		// --F
-
-		return;
 }
 
 void uploadFile(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
@@ -199,26 +208,29 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 	request >> size;
 
 	// Check if the file was uploaded before
-
 	if(files.find(SHA1) != files.end()) {
 		// File already exists
-
 		// Update Info 
-		users[username]["files"][fname] = SHA1;
-
-		owners = files[SHA1]["owners"];
-		owners += 1;
-		files[SHA1]["owners"] = owners;
-
-		saveUsersFilesInfo(users, files);
-
-		// Notify user
-		response << "Done";
+		//Check if file wasn't uploaded before by the user
+		if(!users[username]["files"].count(fname)) {
+			users[username]["files"][fname] = SHA1;
+			owners = files[SHA1]["owners"];
+			owners += 1;
+			files[SHA1]["owners"] = owners;
+			saveUsersFilesInfo(users, files);
+			// Notify user
+			response << "Done";
+		} else {
+			response << "Error" << "File " + fname + " already exists!!";
+		}
 		s.send(response);
-		// --F
-
 		return;
-
+	} else {
+		if(users[username].count("files") && users[username]["files"].count(fname)) {
+			response << "Error" << "File with name: \"" + fname + "\" already exists!!";
+			s.send(response);
+			return;
+		}
 	}
 
 	// Find server to Upload file, according to Priority queue
@@ -227,32 +239,27 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 		s.send(response);
 		return;
 	}
-
 	tmp = servers_queue.pop();
 	location = tmp.address;
 	tmp.bytes_transmitting += size; 
 	tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
 	servers_queue.insert(tmp);
-
-	// --F
-
-	cout << "File to be uploaded: " << fname << " of size (bytes): " << size << endl;
+	cout << "File to be uploaded: " << SHA1 << " of size (bytes): " << size << endl;
 
 	// Send Server info to client, and update priority queue
 	response << location;
 	s.send(response);
 	return;
-	// --F
-
 }
 
-void downloadFile(message& request, message& response, socket& s, json& users, json& files) {
+void downloadFile(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
 	string fname, username, SHA1, location;
 	size_t fsize;
+	Server tmp;
 	request >> username;
 	request >> fname;
 
-	if (users[username]["files"][fname].is_string()) {
+	if (users[username].count("files") && users[username]["files"].count(fname)) {
 		SHA1 = users[username]["files"][fname];
 
 		//Search location of file to download
@@ -261,25 +268,25 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 			fsize = files[SHA1]["size"];	// .get<long long int>();
 
 			// Send Server info to client, and update priority queue
-
-			// --F
-
-			return;
+			int query = servers_queue.search(location);
+			if(query < 0) {
+				cout << "Server not connected!!" << endl;
+				response << "Error" << "Server not connected!!";
+			} else {
+				tmp = servers_queue.deleteAt(query);
+				tmp.bytes_transmitting += fsize;
+				tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+				servers_queue.insert(tmp);
+				response << location << fsize << SHA1;			
+			}
 		}
 	}
 	else {
 		// File doesn't found 
-
-		// response << "Error" << 0;
-		// s.send(response);
-
-		// --F
-
-		return;
-
-
+		response << "Error" << "The file \"" + fname + "\" requested does not exist or couldn't be read!!";
 	}
-
+	s.send(response);
+	return;
 }
 
 void createUser(message& m, message& response, socket& s, json& users) {
@@ -340,8 +347,7 @@ void addServer (message& request, message& response, socket& s, MinHeap<Server> 
 	// Add server to the priority queue
 	servers_queue.insert(tmp);
 	cout << "Server " << tmp.address << " connected!!" << endl;
-	//HeapSort(servers_queue);
-	// --F
+
 	response << "ok";
 	s.send(response);
 }
@@ -357,10 +363,8 @@ void deleteServer (message& request, message& response, socket& s, MinHeap<Serve
 	if(query < 0) {
 		cout << "Server not registered!!" << endl;
 	} else {
-		//cout <<"server running in " << query_add << " is at index: " << query << endl;
 		tmp = servers_queue.deleteAt(query);
 		cout << "Server " << tmp.address << " removed!" << endl;
-		//HeapSort(servers_queue);
 	}
 	response << "ok";
 	s.send(response);
@@ -379,7 +383,7 @@ void clientMessageHandler(message& request, message& response, socket& s, json& 
 	} else  if(op == "Upload") {
 		uploadFile(request, response, s, users, files, servers_queue);
 	} else if(op == "Download") {
-		downloadFile(request, response, s, users, files);
+		downloadFile(request, response, s, users, files, servers_queue);
 	} else if(op == "List_files") {
 		listFiles(request, response, s, users);
 	} else if(op == "Delete") {

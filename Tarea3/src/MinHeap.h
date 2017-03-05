@@ -104,8 +104,8 @@ public:
 			A.resize(size-1);
 			size = A.size();
 			MinHeapify(0);
-			return min;
 		}
+		return min;
 	}
 
 	int search(T target) {
