@@ -1,5 +1,5 @@
 CC	= g++ -std=c++11 -Wall -L$(HOME)/zmq/lib -I$(HOME)/zmq/include
-LDFLAGS = -lpthread -lzmqpp -lzmq -ljsoncpp -lcrypto
+LDFLAGS = -lpthread -lzmqpp -lzmq -lcrypto
 
 all: server client broker
 
