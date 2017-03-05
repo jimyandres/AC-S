@@ -122,6 +122,7 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 	string op, fname, username, SHA1, serverLocation;
 	size_t fileSize, diskSpace;
 	int owners = 1;
+	Server tmp;
 
 	request >> op;
 
@@ -131,10 +132,25 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		request >> SHA1;
 		request >> fileSize;
 		request >> serverLocation;
-		request >> diskSpace;
 
 		// Update Priority queue (fileSize, diskSpace)
-
+		int query = servers_queue.search(serverLocation);
+		if(query < 0) {
+			cout << "Server not registered!!" << endl;
+			response << "Error" << "Server not registered!!";
+			s.send(response);
+		} else {
+			//cout <<"server running in " << query_add << " is at index: " << query << endl;
+			tmp = servers_queue.deleteAt(query);
+			tmp.bytes_transmitting -= fileSize; 
+			tmp.space_used += fileSize;
+			tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+			servers_queue.insert(tmp);
+			
+			response << "Updated";
+			s.send(response);
+			//HeapSort(servers_queue);
+		}
 		// --F
 
 		// Update File and User info
@@ -171,10 +187,11 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		return;
 }
 
-void uploadFile(message& request, message& response, socket& s, json& users, json& files) {
+void uploadFile(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
 	string fname, username, SHA1, location;
 	size_t size;
 	int owners = 1; // Increment file owners in one
+	Server tmp;
 
 	request >> username;
 	request >> fname;
@@ -196,7 +213,8 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 		saveUsersFilesInfo(users, files);
 
 		// Notify user
-
+		response << "Done";
+		s.send(response);
 		// --F
 
 		return;
@@ -204,13 +222,26 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 	}
 
 	// Find server to Upload file, according to Priority queue
+	if(servers_queue.getSize() == 0) {
+		response << "Error" << "No servers connected";
+		s.send(response);
+		return;
+	}
+
+	tmp = servers_queue.pop();
+	location = tmp.address;
+	tmp.bytes_transmitting += size; 
+	tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+	servers_queue.insert(tmp);
 
 	// --F
 
 	cout << "File to be uploaded: " << fname << " of size (bytes): " << size << endl;
 
 	// Send Server info to client, and update priority queue
-
+	response << location;
+	s.send(response);
+	return;
 	// --F
 
 }
@@ -317,6 +348,7 @@ void addServer (message& request, message& response, socket& s, MinHeap<Server> 
 
 void deleteServer (message& request, message& response, socket& s, MinHeap<Server> &servers_queue) {
 	string serverLocation;
+	Server tmp;
 
 	request >> serverLocation;
 
@@ -326,15 +358,15 @@ void deleteServer (message& request, message& response, socket& s, MinHeap<Serve
 		cout << "Server not registered!!" << endl;
 	} else {
 		//cout <<"server running in " << query_add << " is at index: " << query << endl;
-		servers_queue.deleteAt(query);
-		cout << "Server " << serverLocation << " removed!" << endl;
+		tmp = servers_queue.deleteAt(query);
+		cout << "Server " << tmp.address << " removed!" << endl;
 		//HeapSort(servers_queue);
 	}
 	response << "ok";
 	s.send(response);
 }
 
-void clientMessageHandler(message& request, message& response, socket& s, json& users, json& files) {
+void clientMessageHandler(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
 	string op;
 	request >> op;
 
@@ -345,7 +377,7 @@ void clientMessageHandler(message& request, message& response, socket& s, json& 
 	} else  if(op == "Login") {
 		verifyUser(request, response, s, users);
 	} else  if(op == "Upload") {
-		uploadFile(request, response, s, users, files);
+		uploadFile(request, response, s, users, files, servers_queue);
 	} else if(op == "Download") {
 		downloadFile(request, response, s, users, files);
 	} else if(op == "List_files") {
@@ -415,7 +447,7 @@ int main() {
 				message request, response;
 				clients_sock.receive(request);
 				cout << "Message received!\n";
-				clientMessageHandler(request, response, clients_sock, users, files);
+				clientMessageHandler(request, response, clients_sock, users, files, servers_queue);
 			}
 			if(p.has_input(servers_sock)) {
 				message request, response;
@@ -428,6 +460,8 @@ int main() {
 				getline(cin, input);
 				if(input == "q" || input == "quit" || input == "Quit" || input == "ex" || input == "Exit" || input == "exit") {
 					break;
+				} else if(input == "sh") {
+					HeapSort(servers_queue);
 				}
 			}
 		}

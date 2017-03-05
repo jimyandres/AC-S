@@ -126,7 +126,7 @@ public:
 		return -1;
 	}
 
-	void deleteAt(int i) {
+	T deleteAt(int i) {
 		T deleted = A[i];
 		A[i] = A[size-1];
 		A.resize(size-1);
@@ -143,6 +143,7 @@ public:
 				MinHeapify(tmp_index);
 			}
 		}
+		return deleted;
 	}
 };
 

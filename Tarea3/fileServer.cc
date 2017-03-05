@@ -26,6 +26,11 @@ void printChecksum (unsigned char * check_sum) {
     printf("%s\n", mdString);
 }
 
+void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH*2+1]) {
+    for(int i = 0; i < SHA_DIGEST_LENGTH; i++)
+        sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
+}
+
 void getCheckSum(string path, unsigned char *check_sum) {
 	FILE* f;
 	char *data;
@@ -48,11 +53,9 @@ void getCheckSum(string path, unsigned char *check_sum) {
 	}
 	fclose(f);
 	SHA1_Final(check_sum, &sha_ctx);
-	cout << "Calculated check sum: ";
-	printChecksum(check_sum);
 }
 
-void CheckFile(message &client_request, string path, message &server_response) {
+bool CheckFile(message &client_request, string path, message &server_response) {
 	message check_sum_msg;
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	unsigned char *received_check_sum = NULL;
@@ -63,6 +66,9 @@ void CheckFile(message &client_request, string path, message &server_response) {
 
 	getCheckSum(path, (unsigned char *)&check_sum);
 
+	cout << "Calculated check sum: ";
+	printChecksum(check_sum);
+
 	if(memcmp(received_check_sum, check_sum, SHA_DIGEST_LENGTH)) {
 		if( remove(path.c_str()) != 0 )
 			cout << "Error deleting file: " << path << endl;
@@ -70,8 +76,10 @@ void CheckFile(message &client_request, string path, message &server_response) {
 			cout << "File: " << path << " successfully deleted\n";
 		cout << "Error" << endl;
 		server_response << "Error" << "Checksum failed, \"" + path + "\"deleted";
+		return false;
 	} else {
 		server_response << "UpDone" << path;
+		return true;
 	}
 }
 
@@ -109,7 +117,7 @@ void deleteFile(message &m, message &response, socket &s, string client_id) {
 	m >> filename;
 	m >> fileSize;
 
-	l = "Uploads/" + user + "/" + filename;
+	l = "Uploads/" + filename;
 	response << client_id << "";
 
 	cout << "Deleting: " + l << endl;;
@@ -125,21 +133,23 @@ void deleteFile(message &m, message &response, socket &s, string client_id) {
 	s.send(response);
 }
 
-void uploadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address) {
-	string fname, path, username, fname_client;
+void uploadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker) {
+	string fname, path, username, fname_client, ans;
 	size_t size, total;
 	char * data;
+	char file_SHA1[SHA_DIGEST_LENGTH*2+1];
+	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	FILE * f;
 	int chunk_size;
 	long file_size;
-	message exit_signal;
+	message request_broker, response_broker;
 
 	server_response << client_id << "";
 
 	client_request >> username;
 	client_request >> fname_client;
 	client_request >> fname;
-	path = "Uploads/" + username + "/";
+	path = "Uploads/";
 	path.append(fname);
 	cout << "Path: " << path.c_str() << endl;
 	client_request >> file_size;
@@ -148,7 +158,21 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	if (total == 0)
 		f = fopen(path.c_str(), "wb");
 	else if((int)total == file_size) {
-		CheckFile(client_request, path, server_response);
+		if(CheckFile(client_request, path, server_response)) {
+			updateDiskUsage(file_size);
+
+			getCheckSum(path, (unsigned char *)&check_sum);
+			ChecksumToString((unsigned char *)&check_sum, file_SHA1);
+			request_broker << "UpdateInfo" << "Upload" << username << fname << file_SHA1 << file_size << download_address;
+			broker.send(request_broker); 
+			broker.receive(response_broker);
+			if(response_broker.get(0) == "Error") {
+				ans = response_broker.get(1);
+				cout << ans << endl;
+			} else if(response_broker.get(0) == "Updated") {
+				cout << "Updated on broker" << endl;
+			}
+		}
 		server_response << download_address;
 		s.send(server_response);
 		return;
@@ -172,13 +196,13 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	s.send(server_response);
 }
 
-void downloadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address) {
+void downloadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker) {
 	string op = "Download";
 	FILE* f;
 	char *data;
 	size_t size, offset;
 	long sz;
-	message exit_signal;
+	message request_broker, response_broker;
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 
@@ -189,7 +213,7 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	client_request >> offset;
 	client_request >> sz;
 
-	path = "Uploads/" + username + "/";
+	path = "Uploads/";
 
 	path.append(fname);
 
@@ -236,16 +260,16 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	s.send(server_response);
 }
 
-void messageHandler(message &client_request, message &server_response, socket &s, string socket_address) {
+void messageHandler(message &client_request, message &server_response, socket &s, string socket_address, socket &broker) {
 	string op, client_id, empty;
 	client_request >> client_id >> empty >> op;
 
 	cout << "Option: " << op << endl;
 
 	if(op == "Upload") {
-		uploadFile(client_request, server_response, s, client_id, socket_address);
+		uploadFile(client_request, server_response, s, client_id, socket_address, broker);
 	} else if(op == "Download") {
-		downloadFile(client_request, server_response, s, client_id, socket_address);
+		downloadFile(client_request, server_response, s, client_id, socket_address, broker);
 	} else if(op == "Delete") {
 		deleteFile(client_request, server_response, s, client_id);
 	} else {
@@ -257,11 +281,14 @@ void messageHandler(message &client_request, message &server_response, socket &s
 void registerToBroker(socket &broker, string address) {
 	json space;
 	long usage, bytes;
-	//ifstream spc("dSpace.json");
-	ofstream spc("dSpace.json");
-	spc >> space;
-
-	if(space.find("diskSpace") != space.end() && space.is_open()) {
+	//fstream spc;
+	ifstream spc("dSpace.json");
+	//spc.open("dSpace.json", fstream::in | fstream::out | fstream::trunc);
+	//ofstream spc("dSpace.json");
+	
+	if(spc.good()) 
+		spc >> space;
+	if(space.find("diskSpace") != space.end()) {// && spc.is_open()) {
 		usage = space["diskSpace"];
 	}
 	else {
@@ -272,6 +299,7 @@ void registerToBroker(socket &broker, string address) {
 	bytes = 0;
 	message broker_register;
 	broker_register << "Add" << address << usage << bytes;
+	//spc.close();
 
 	broker.send(broker_register);
 }
@@ -331,6 +359,15 @@ int main(int argc, char* argv[]) {
 	while(true) {
 		cout << "Waiting for message to arrive!\n";
 		if(p.poll()) {
+			if(p.has_input(down)) {
+
+				message client_request, server_response;
+				down.receive(client_request);
+
+				cout << "Message received!\n";
+
+				messageHandler(client_request, server_response, down, download_address, s);
+			}
 			if(p.has_input(s)) {
 
 				message broker_response;
@@ -341,15 +378,6 @@ int main(int argc, char* argv[]) {
 				cout << response << endl;
 
 				//messageHandler(client_request, server_response, s, "");
-			}
-			if(p.has_input(down)) {
-
-				message client_request, server_response;
-				down.receive(client_request);
-
-				cout << "Message received!\n";
-
-				messageHandler(client_request, server_response, down, download_address);
 			}
 			if(p.has_input(standardin)) {
 				string input;

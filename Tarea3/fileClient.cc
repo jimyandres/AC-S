@@ -24,6 +24,11 @@ void printChecksum (unsigned char * check_sum) {
     printf("%s\n", mdString);
 }
 
+void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH*2+1]) {
+    for(int i = 0; i < SHA_DIGEST_LENGTH; i++)
+        sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
+}
+
 void printMenu() {
 	cout << "\n\n***********************************\n";
 	cout << "Enter action to perform: \n\tList_files\n\tDownload\n\tUpload\n\tDelete\n\tExit\n";
@@ -71,8 +76,6 @@ void getCheckSum(string path, unsigned char *check_sum) {
 	}
 	fclose(f);
 	SHA1_Final(check_sum, &sha_ctx);
-	cout << "Calculated check sum: ";
-	printChecksum(check_sum);
 }
 
 void CheckFile(message &server_response, string path) {
@@ -84,6 +87,9 @@ void CheckFile(message &server_response, string path) {
 	printChecksum(received_check_sum);
 
 	getCheckSum(path, (unsigned char *)&check_sum);
+
+	cout << "Calculated check sum: ";
+	printChecksum(check_sum);
 
 	if(memcmp(check_sum, received_check_sum, SHA_DIGEST_LENGTH)) {
 		cout << "\nThe Checksum failed, please try again!!" << endl;
@@ -211,6 +217,7 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	}
 
 	cout << "Enter server address: " << endl; //send req to broker
+
 	cin >> server_address; //rec response from broker
 	download_socket.connect(server_address); //connect to server
 
@@ -226,8 +233,8 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 	FILE* f;
 	char *data;
 	size_t size, offset;
-	char file_name[100];
-	message file_message, server_answer, check_sum_msg;
+	char file_name[100], file_SHA1[SHA_DIGEST_LENGTH*2+1];
+	message file_message, server_answer, check_sum_msg, request_broker, response_broker;
 	string empty, server_address, fname;
 
 	cout << "Enter file name: \n";
@@ -238,9 +245,6 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		return;
 	}
 
-	cout << "enter server address: " << endl; //send req to broker
-	cin >> server_address; //rec response from broker
-
 	getFileName(fname, file_name);
 
 	if(!(f = fopen(fname.c_str(), "rb"))) {
@@ -248,12 +252,33 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		return;
 	}
 	fflush(f);
-	upload_socket.connect(server_address); //connect to server
 
 	fseek(f, 0L, SEEK_END);
 	long sz = ftell(f);
 	cout << "\nFile size (bytes): " << sz << endl;
 	fseek(f, 0L, SEEK_SET);
+
+	unsigned char check_sum[SHA_DIGEST_LENGTH];
+	getCheckSum(fname, (unsigned char *)&check_sum);
+	ChecksumToString((unsigned char *)&check_sum, file_SHA1);
+
+	request_broker << "Upload" << username << file_name << file_SHA1 << sz;
+	broker_socket.send(request_broker);
+	broker_socket.receive(response_broker);
+
+	if(response_broker.get(0) == "Done") {
+		cout << "\"" << file_name << "\" successfully uploaded!!" << endl;
+		return;
+	} else if(response_broker.get(0) == "Error") {
+		server_address = response_broker.get(1);
+		cout << "Error: " <<  server_address << endl;
+		return;
+	} else {
+		response_broker >> server_address;
+		cout << "Connected to: " << server_address << endl;
+	}
+
+	upload_socket.connect(server_address); //connect to server
 
 	offset = 0;
 
@@ -407,6 +432,10 @@ int main(int argc, char* argv[]) {
 			cout <<  "\nEnter action to perform: " << endl;
 			while(true) {
 				if(p.poll()) {
+					if(p.has_input(s)){
+						s.receive(server_response);
+						messageHandler(server_response, s, username);
+					}
 					if(p.has_input(broker_socket)) {
 						cout <<"Message" << endl;
 					}
@@ -427,10 +456,6 @@ int main(int argc, char* argv[]) {
 						} else {
 							cout << "\nInvalid option, please enter one of the listed options!\n";
 						}
-					}
-					if(p.has_input(s)){
-						s.receive(server_response);
-						messageHandler(server_response, s, username);
 					}
 				}
 			}
