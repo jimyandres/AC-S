@@ -5,6 +5,7 @@
 #include <zmqpp/zmqpp.hpp>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <unistd.h>			// Sleep
 
 #include "src/json.hpp"
 
@@ -158,7 +159,7 @@ void deleteFile(message &m, message &response, socket &s, string client_id, stri
 	s.send(response);
 }
 
-void uploadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker) {
+void uploadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker, int delay) {
 	string fname, path, username, fname_client, ans;
 	size_t size, total;
 	char * data;
@@ -192,6 +193,10 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 		} else {
 			request_broker << "UpdateInfo" << "Upload" << 0 << username << broker_fname << file_SHA1 << file_size << download_address;
 		}
+
+		// Simulate Delay
+		sleep(delay);
+
 		broker.send(request_broker); 
 		broker.receive(response_broker);
 		if(response_broker.get(0) == "Error") {
@@ -222,7 +227,7 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	s.send(server_response);
 }
 
-void downloadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker) {
+void downloadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker, int delay) {
 	string op = "Download";
 	FILE* f;
 	char *data;
@@ -265,6 +270,10 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 		server_response.push_back(download_address);
 		
 		request_broker << "UpdateInfo" << "Download" << fname << sz << download_address;
+
+		// Simulate Delay
+		sleep(delay);
+
 		broker.send(request_broker); 
 		broker.receive(response_broker);
 		if(response_broker.get(0) == "Error") {
@@ -293,16 +302,16 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	s.send(server_response);
 }
 
-void messageHandler(message &client_request, message &server_response, socket &s, string socket_address, socket &broker) {
+void messageHandler(message &client_request, message &server_response, socket &s, string socket_address, socket &broker, int delay) {
 	string op, client_id, empty;
 	client_request >> client_id >> empty >> op;
 
 	cout << "Option: " << op << endl;
 
 	if(op == "Upload") {
-		uploadFile(client_request, server_response, s, client_id, socket_address, broker);
+		uploadFile(client_request, server_response, s, client_id, socket_address, broker, delay);
 	} else if(op == "Download") {
-		downloadFile(client_request, server_response, s, client_id, socket_address, broker);
+		downloadFile(client_request, server_response, s, client_id, socket_address, broker, delay);
 	} else if(op == "Delete") {
 		deleteFile(client_request, server_response, s, client_id, socket_address, broker);
 	} else {
@@ -347,13 +356,15 @@ int main(int argc, char* argv[]) {
 	string broker_address = "tcp://";
 	string download_address = "tcp://";
 	string response;
+	int delay;
 
-	if (argc != 3) {
-		cout << "Please use like this: ./fileServer address:port broker_address:port\n";
+	if (argc != 4) {
+		cout << "Please use like this: ./fileServer address:port broker_address:port [Delay_in_seconds]\n";
 		return EXIT_FAILURE;
 	} else {
 		download_address.append(argv[1]);
 		broker_address.append(argv[2]);
+		delay = (unsigned int)atoi(argv[3]);
 	}
 
 	cout << "This is the server\n"; 
@@ -394,7 +405,7 @@ int main(int argc, char* argv[]) {
 
 				cout << "Message received!\n";
 
-				messageHandler(client_request, server_response, down, download_address, s);
+				messageHandler(client_request, server_response, down, download_address, s, delay);
 			}
 			if(p.has_input(s)) {
 

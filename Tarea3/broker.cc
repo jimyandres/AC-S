@@ -229,6 +229,7 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 			owners += 1;
 			files[SHA1]["owners"] = owners;
 			saveUsersFilesInfo(users, files);
+
 			// Notify user
 			response << "Done";
 		} else {
