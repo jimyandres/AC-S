@@ -257,10 +257,11 @@ void messageHandler(message &client_request, message &server_response, socket &s
 void registerToBroker(socket &broker, string address) {
 	json space;
 	long usage, bytes;
-	ifstream spc("dSpace.json");
+	//ifstream spc("dSpace.json");
+	ofstream spc("dSpace.json");
 	spc >> space;
 
-	if (space.find("diskSpace") != space.end()) {
+	if(space.find("diskSpace") != space.end() && space.is_open()) {
 		usage = space["diskSpace"];
 	}
 	else {
