@@ -12,7 +12,8 @@ The users information is stored in another json file. The list files function op
 This version of the project no longer depends on this: json: ```sudo apt-get install libjsoncpp-dev libjsoncpp1```.
 To run the program compile with ```. export.sh```, then:
 * Run broker (the broker will always run on port 5556 for servers and port 5555 for clients. The address will be the default ipv4 address of the computer that is running on: ./broker
-* Run servers: ./fileServer address:port broker_address:5556 delay
+* Run servers: ./fileServer server_address:port broker_address:5556 delay
 * Run clients: ./fileClient broker_address:5555
 
 If no delay is wanted, put a 0. The delay value is in seconds.
+The server address cannot be localhost, instead use 127.0.0.1.
