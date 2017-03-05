@@ -46,13 +46,17 @@ void listFiles(message& m, message& response, socket& s, json& users) {
 
 	m >> username;
 
-	// Get list of files
-	for (json::iterator it = users[username]["files"].begin(); it != users[username]["files"].end(); it++) {
-		files += "\t";
-		files += it.key() ;
-		files += "\t";	
+	// Check if user has files
+	if (users[username].find("files") != users[username].end()) {
+		// Get list of files
+		for (json::iterator it = users[username]["files"].begin(); it != users[username]["files"].end(); it++) {
+			files += "\t";
+			files += it.key() ;
+			files += "\t";	
+		}
+		files += "\n";
 	}
-	files += "\n";
+	else files = "No files found.\n";
 
 	// Send list of files to Client
 
@@ -96,56 +100,6 @@ void deleteFile(message& m, message& response, socket& s, json& users, json& fil
 	// --F
 
 	return;
-}
-
-void updateInfo(message& request, message& response, socket& s, json& users, json& files) {
-	string op, fname, username, SHA1, serverLocation;
-	size_t fileSize, diskSpaceAvailable;
-	int owners = 1;
-
-	request >> op;
-
-	if (op == "Upload") {
-		request >> username;
-		request >> fname;
-		request >> SHA1;
-		request >> fileSize;
-		request >> serverLocation;
-
-		// Update Priority queue 
-
-		// --F
-
-		// Update File and User info
-		users[username]["files"][fname] = SHA1;
-
-		files[SHA1]["owners"] = owners;
-
-		saveUsersFilesInfo(users, files);
-
-		// Notify user
-
-		// --F
-
-		return;
-	}
-	else if (op == "Download") {
-		request >> SHA1;
-		request >> fileSize;
-		request >> serverLocation;
-
-		// Update Priority queue 
-
-		// --F
-
-		return;
-	}
-	else 
-		// Error notification
-
-		// --F
-
-		return;
 }
 
 void uploadFile(message& request, message& response, socket& s, json& users, json& files) {
@@ -273,6 +227,103 @@ void verifyUser(message& m, message& response, socket& s, json& users) {
 
 	s.send(response);	
 }
+
+void addServer (message& request, message& response, socket& s) {
+	string serverLocation, diskSpace;;
+
+	request >> serverLocation;
+	request >> diskSpace;
+
+
+	// Add server to the priority queue
+
+	// --F
+
+	return;
+}
+
+void deleteServer (message& request, message& response, socket& s) {
+	string serverLocation;
+
+	request >> serverLocation;
+
+	// Delete server from Priority queue
+
+	// --F
+
+	return;
+}
+
+void updateInfo(message& request, message& response, socket& s, json& users, json& files) {
+	string op, fname, username, SHA1, serverLocation;
+	size_t fileSize, diskSpace;
+	int owners = 1;
+
+	request >> op;
+
+	if (op == "Upload") {
+		request >> username;
+		request >> fname;
+		request >> SHA1;
+		request >> fileSize;
+		request >> serverLocation;
+		request >> diskSpace;
+
+		// Update Priority queue (fileSize, diskSpace)
+
+		// --F
+
+		// Update File and User info
+		users[username]["files"][fname] = SHA1;
+
+		files[SHA1]["owners"] = owners;
+		files[SHA1]["location"] = serverLocation;
+		files[SHA1]["size"] = fileSize;
+
+		saveUsersFilesInfo(users, files);
+
+		// Notify user
+
+		// --F
+
+		return;
+	}
+	else if (op == "Download") {
+		request >> SHA1;
+		request >> fileSize;
+		request >> serverLocation;
+		request >> diskSpace;
+		// Update Priority queue (fileSize, diskSpace)
+
+		// --F
+
+		return;
+	}
+	else 
+		// Error notification
+
+		// --F
+
+		return;
+}
+
+void serverMessageHandler(message& request, message& response, socket& s, json& users, json& files) {
+	string op;
+	request >> op;
+
+	cout << "Option from Server: " << op << endl;
+
+	if(op == "Add") {
+		addServer(request, response, s);
+	} else  if(op == "Delete") {
+		deleteServer(request, response, s);
+	} else  if(op == "UpdateInfo") {
+		updateInfo(request, response, s, users, files);
+	} else {
+		response << "Error";
+	}
+}
+
 
 void messageHandler(message& request, message& response, socket& s, json& users, json& files) {
 	string op;
