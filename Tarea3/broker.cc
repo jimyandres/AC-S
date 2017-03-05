@@ -114,13 +114,16 @@ void deleteFile(message& m, message& response, socket& s, json& users, json& fil
 void updateInfo(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
 	string op, fname, username, SHA1, serverLocation;
 	size_t fileSize;
-	int owners = 1;
+	int verifyUpload, owners = 1;
 	Server tmp;
 	int query;
 
 	request >> op;
 
 	if (op == "Upload") {
+
+		request >> verifyUpload;
+
 		request >> username;
 		request >> fname;
 		request >> SHA1;
@@ -141,12 +144,25 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 			response << "Updated";
 		}
 
-		// Update File and User info
-		users[username]["files"][fname] = SHA1;
+		if (verifyUpload){
+		
+			// Update File and User info
+			users[username]["files"][fname] = SHA1;
+			
+			files[SHA1]["owners"] = owners;
+			files[SHA1]["location"] = serverLocation;
+			files[SHA1]["size"] = fileSize;
+		}
+		else {
 
-		files[SHA1]["owners"] = owners;
-		files[SHA1]["location"] = serverLocation;
-		files[SHA1]["size"] = fileSize;
+			// Delete File and User info
+			users[username]["files"].erase(fname);
+
+			if(!users[username]["files"].size())
+				users[username].erase("files");
+	
+			files.erase(SHA1);
+		}
 
 		saveUsersFilesInfo(users, files);
 		s.send(response);
