@@ -287,22 +287,34 @@ void messageHandler(message &client_request, message &server_response, socket &s
 }
 
 void registerToBroker(socket &broker, string address) {
-	FILE* f;
-	int *space = (int *) malloc (sizeof(int));
-	*space = 0;
-	int bytes = 0;
-	if(!(f=fopen("server_data.bin", "rb"))) {
-		f=fopen("server_data.bin", "wb");
-		fwrite(space, sizeof(int), 1, f);
-	} else {
-		fread(space, sizeof(int), 1, f);
-	}
+	//FILE* f;
+	// int *space = (int *) malloc (sizeof(int));
+	// *space = 0;
+	long space = 0;
+	long bytes = 0;
+	// if(!(f=fopen("server_data.bin", "rb"))) {
+	// 	f=fopen("server_data.bin", "wb");
+	// 	fwrite(space, sizeof(int), 1, f);
+	// } else {
+	// 	fread(space, sizeof(int), 1, f);
+	// }
 	message broker_register;
-	broker_register << "Register" << address << bytes;
-	broker_register.push_back(space, sizeof(int));
-	fclose(f);
-	free(space);
+	broker_register << "Add" << address << space << bytes;
+	// broker_register.push_back(space, sizeof(int));
+	// fclose(f);
+	// free(space);
 	broker.send(broker_register);
+}
+
+void disconnectFromBroker(socket &broker, string address) {
+	message broker_disconnect, response;
+	string ans;
+
+	broker_disconnect << "Delete" << address;
+	broker.send(broker_disconnect);
+	broker.receive(response);
+	response >> ans;
+	cout << ans << endl;				
 }
 
 int main(int argc, char* argv[]) {
@@ -378,7 +390,7 @@ int main(int argc, char* argv[]) {
 			}
 		}
 	}
-
+	disconnectFromBroker(s, download_address);
 	s.close();
 	down.close();
 	ctx.terminate();
