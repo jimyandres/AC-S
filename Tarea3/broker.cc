@@ -114,7 +114,7 @@ void deleteFile(message& m, message& response, socket& s, json& users, json& fil
 void updateInfo(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
 	string op, fname, username, SHA1, serverLocation;
 	size_t fileSize;
-	int verifyUpload, owners = 1;
+	int verifyUpload;//, owners = 1;
 	Server tmp;
 	int query;
 
@@ -123,7 +123,6 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 	if (op == "Upload") {
 
 		request >> verifyUpload;
-
 		request >> username;
 		request >> fname;
 		request >> SHA1;
@@ -138,32 +137,21 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		} else {
 			tmp = servers_queue.deleteAt(query);
 			tmp.bytes_transmitting -= fileSize; 
-			tmp.space_used += fileSize;
+			if (verifyUpload) {
+				// Update File and User info
+				users[username]["files"][fname] = SHA1;
+				tmp.space_used += fileSize;
+			} else {
+				// Delete File and User info
+				users[username]["files"].erase(fname);
+				if(!users[username]["files"].size())
+					users[username].erase("files");		
+				files.erase(SHA1);
+			}
 			tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
 			servers_queue.insert(tmp);
 			response << "Updated";
 		}
-
-		if (verifyUpload){
-		
-			// Update File and User info
-			users[username]["files"][fname] = SHA1;
-			
-			files[SHA1]["owners"] = owners;
-			files[SHA1]["location"] = serverLocation;
-			files[SHA1]["size"] = fileSize;
-		}
-		else {
-
-			// Delete File and User info
-			users[username]["files"].erase(fname);
-
-			if(!users[username]["files"].size())
-				users[username].erase("files");
-	
-			files.erase(SHA1);
-		}
-
 		saveUsersFilesInfo(users, files);
 		s.send(response);
 		return;
@@ -261,6 +249,10 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 	tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
 	servers_queue.insert(tmp);
 	cout << "File to be uploaded: " << SHA1 << " of size (bytes): " << size << endl;
+	files[SHA1]["owners"] = owners;
+	files[SHA1]["location"] = location;
+	files[SHA1]["size"] = size;
+	saveUsersFilesInfo(users, files);
 
 	// Send Server info to client, and update priority queue
 	response << location;

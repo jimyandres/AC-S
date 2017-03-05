@@ -184,20 +184,23 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 		f = fopen(path.c_str(), "wb");
 	else if((int)total == file_size) {
 		getFileName(fname_client, broker_fname);
+		getCheckSum(path, (unsigned char *)&check_sum);
+		ChecksumToString((unsigned char *)&check_sum, file_SHA1);
 		if(CheckFile(client_request, path, server_response, broker_fname)) {
 			updateDiskUsage(file_size);
-			getCheckSum(path, (unsigned char *)&check_sum);
-			ChecksumToString((unsigned char *)&check_sum, file_SHA1);
-			request_broker << "UpdateInfo" << "Upload" << username << broker_fname << file_SHA1 << file_size << download_address;
-			broker.send(request_broker); 
-			broker.receive(response_broker);
-			if(response_broker.get(0) == "Error") {
-				ans = response_broker.get(1);
-				cout << ans << endl;
-			} else if(response_broker.get(0) == "Updated") {
-				cout << "Updated on broker" << endl;
-			}
+			request_broker << "UpdateInfo" << "Upload" << 1 << username << broker_fname << file_SHA1 << file_size << download_address;
+		} else {
+			request_broker << "UpdateInfo" << "Upload" << 0 << username << broker_fname << file_SHA1 << file_size << download_address;
 		}
+		broker.send(request_broker); 
+		broker.receive(response_broker);
+		if(response_broker.get(0) == "Error") {
+			ans = response_broker.get(1);
+			cout << ans << endl;
+		} else if(response_broker.get(0) == "Updated") {
+			cout << "Updated on broker" << endl;
+		}
+		
 		server_response << download_address;
 		s.send(server_response);
 		return;
