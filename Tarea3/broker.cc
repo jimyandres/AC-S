@@ -118,9 +118,9 @@ void deleteFile(message& m, message& response, socket& s, json& users, json& fil
 	return;
 }
 
-void updateInfo(message& request, message& response, socket& s, json& users, json& files) {
+void updateInfo(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
 	string op, fname, username, SHA1, serverLocation;
-	size_t fileSize, diskSpaceAvailable;
+	size_t fileSize, diskSpace;
 	int owners = 1;
 
 	request >> op;
@@ -131,8 +131,9 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		request >> SHA1;
 		request >> fileSize;
 		request >> serverLocation;
+		request >> diskSpace;
 
-		// Update Priority queue 
+		// Update Priority queue (fileSize, diskSpace)
 
 		// --F
 
@@ -140,6 +141,8 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		users[username]["files"][fname] = SHA1;
 
 		files[SHA1]["owners"] = owners;
+		files[SHA1]["location"] = serverLocation;
+		files[SHA1]["size"] = fileSize;
 
 		saveUsersFilesInfo(users, files);
 
@@ -153,8 +156,8 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		request >> SHA1;
 		request >> fileSize;
 		request >> serverLocation;
-
-		// Update Priority queue 
+		request >> diskSpace;
+		// Update Priority queue (fileSize, diskSpace)
 
 		// --F
 
@@ -294,6 +297,43 @@ void verifyUser(message& m, message& response, socket& s, json& users) {
 	s.send(response);	
 }
 
+void addServer (message& request, message& response, socket& s, MinHeap<Server> &servers_queue) {
+	//string serverLocation, diskSpace;
+	Server tmp;
+
+	request >> tmp.address;
+	request >> tmp.space_used;
+	request >> tmp.bytes_transmitting;
+	tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+
+	// Add server to the priority queue
+	servers_queue.insert(tmp);
+	cout << "Server " << tmp.address << " connected!!" << endl;
+	//HeapSort(servers_queue);
+	// --F
+	response << "ok";
+	s.send(response);
+}
+
+void deleteServer (message& request, message& response, socket& s, MinHeap<Server> &servers_queue) {
+	string serverLocation;
+
+	request >> serverLocation;
+
+	// Delete server from Priority queue
+	int query = servers_queue.search(serverLocation);
+	if(query < 0) {
+		cout << "Server not registered!!" << endl;
+	} else {
+		//cout <<"server running in " << query_add << " is at index: " << query << endl;
+		servers_queue.deleteAt(query);
+		cout << "Server " << serverLocation << " removed!" << endl;
+		//HeapSort(servers_queue);
+	}
+	response << "ok";
+	s.send(response);
+}
+
 void clientMessageHandler(message& request, message& response, socket& s, json& users, json& files) {
 	string op;
 	request >> op;
@@ -317,21 +357,18 @@ void clientMessageHandler(message& request, message& response, socket& s, json& 
 	}
 }
 
-void serverMessageHandler(message& request, message& response, socket& s, json& users, json& files) {
-	string op, address;
-	int bytes;
-	int * space_used;
+void serverMessageHandler(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
+	string op;
 	request >> op;
 
-	cout << "Option: " << op << endl;
+	cout << "Option from Server: " << op << endl;
 
-	if(op == "Register") {
-		request >> address;
-		request >> bytes;
-		space_used = (int*)request.raw_data(3);
-		cout << "Server: " << address << " with " << bytes << " and " << " occupied space" << endl;
-		response << "ok";
-		s.send(response);
+	if(op == "Add") {
+		addServer(request, response, s, servers_queue);
+	} else  if(op == "Delete") {
+		deleteServer(request, response, s, servers_queue);
+	} else  if(op == "UpdateInfo") {
+		updateInfo(request, response, s, users, files, servers_queue);
 	} else {
 		response << "Error";
 	}
@@ -343,6 +380,8 @@ int main() {
 	context ctx;  
 	socket clients_sock(ctx, socket_type::rep);
 	socket servers_sock(ctx, socket_type::rep);
+
+	MinHeap<Server> servers_queue;
 
 	cout << "Binding socket to tcp port 5555 for clients and tcp port 5556 for servers\n";
 	clients_sock.bind("tcp://*:5555");
@@ -382,7 +421,7 @@ int main() {
 				message request, response;
 				servers_sock.receive(request);
 				cout << "Message received!\n";
-				serverMessageHandler(request, response, servers_sock, users, files);
+				serverMessageHandler(request, response, servers_sock, users, files, servers_queue);
 			}
 			if(p.has_input(standardin)) {
 				string input;
