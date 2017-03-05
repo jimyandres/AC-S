@@ -6,8 +6,9 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-#include <jsoncpp/json/json.h>
-#include <jsoncpp/json/writer.h>
+#include "src/json.hpp"
+
+using json = nlohmann::json;
 
 #include <openssl/sha.h>
 
@@ -74,11 +75,39 @@ void CheckFile(message &client_request, string path, message &server_response) {
 	}
 }
 
+void saveSpaceDisk(json& data) {
+	ofstream ds("dSpace.json");
+	ds << setw(4) << data << endl;
+	ds.close();
+	return;
+}
+
+void updateDiskUsage (long fileSize) {
+	json space;
+	long usage;
+	ifstream spc("dSpace.json");
+	spc >> space;
+
+	if (space.find("diskSpace") != space.end()) {
+		usage = space["diskSpace"];
+		usage += fileSize;
+		space["diskSpace"] = usage;
+	}
+	else {
+		usage = fileSize;
+		space["diskSpace"] = usage;
+	}
+	saveSpaceDisk(space);
+	return;
+}
+
 void deleteFile(message &m, message &response, socket &s, string client_id) {
 	string user, filename, l;
+	long fileSize;
 
 	m >> user;
 	m >> filename;
+	m >> fileSize;
 
 	l = "Uploads/" + user + "/" + filename;
 	response << client_id << "";
@@ -91,6 +120,7 @@ void deleteFile(message &m, message &response, socket &s, string client_id) {
 	}
 	else {
 		response << "File successfully deleted\n";
+		updateDiskUsage(fileSize);
 	}
 	s.send(response);
 }
@@ -135,6 +165,9 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	fwrite(data, 1, size, f);
 	fclose(f);
 	total += size;
+
+	updateDiskUsage(file_size);
+
 	server_response << "Upload" << fname_client << fname << total << file_size;
 	s.send(server_response);
 }
@@ -204,64 +237,64 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 }
 
 void createUser(message &m, message &response, socket &s, string client_id) {
-	string user, password, url;
+// 	string user, password, url;
 
-	m >> user;
-	m >> password;
+// 	m >> user;
+// 	m >> password;
 
-	Json::Value root;   // will contains the root value after parsing.
-	Json::Reader reader;
-	Json::StyledStreamWriter writer;
-	std::ifstream test("users.json");
-	bool parsingSuccessful = reader.parse( test, root );
-	if ( !parsingSuccessful )
-	{
-        // report to the user the failure and their locations in the document.
-		std::cout  << "Failed to parse configuration: "<< reader.getFormattedErrorMessages();
-	}
-	if (root.isMember(user)) {
-		response << client_id << "" << "Failed" << "Username \"" + user + "\" already exists!\n";
-	}
-	else {
-		root[user]["password"] = password;
-		test.close();
-		ofstream test1("users.json");
-		cout << "New user created: " << user << endl;
-		writer.write(test1,root);
+// 	Json::Value root;   // will contains the root value after parsing.
+// 	Json::Reader reader;
+// 	Json::StyledStreamWriter writer;
+// 	std::ifstream test("users.json");
+// 	bool parsingSuccessful = reader.parse( test, root );
+// 	if ( !parsingSuccessful )
+// 	{
+//         // report to the user the failure and their locations in the document.
+// 		std::cout  << "Failed to parse configuration: "<< reader.getFormattedErrorMessages();
+// 	}
+// 	if (root.isMember(user)) {
+// 		response << client_id << "" << "Failed" << "Username \"" + user + "\" already exists!\n";
+// 	}
+// 	else {
+// 		root[user]["password"] = password;
+// 		test.close();
+// 		ofstream test1("users.json");
+// 		cout << "New user created: " << user << endl;
+// 		writer.write(test1,root);
 
-		url = "mkdir -p Uploads/" + user;
-		const char * directory =  url.c_str();
-		system(directory);
-		response << client_id << "" << "Ok" << "Username \"" + user + "\" was created!";
-	}
+// 		url = "mkdir -p Uploads/" + user;
+// 		const char * directory =  url.c_str();
+// 		system(directory);
+// 		response << client_id << "" << "Ok" << "Username \"" + user + "\" was created!";
+// 	}
 
-	s.send(response);
+// 	s.send(response);
 
 }
 
 void verifyUser(message &m, message &response, socket &s, string client_id) {
 
-	string user, password;
+// 	string user, password;
 
-	m >> user;
-	m >> password;
+// 	m >> user;
+// 	m >> password;
 
-	Json::Value root;   // will contains the root value after parsing.
-	Json::Reader reader;
-	Json::StyledStreamWriter writer;
-	std::ifstream test("users.json");
-	bool parsingSuccessful = reader.parse( test, root );
-	if ( !parsingSuccessful )
-	{
-        // report to the user the failure and their locations in the document.
-		std::cout  << "Failed to parse configuration: "<< reader.getFormattedErrorMessages();
-	}
-	if (root[user]["password"] == password) {
-		response << client_id << "" << 1;
-	}
-	else response << client_id << "" << 0;
+// 	Json::Value root;   // will contains the root value after parsing.
+// 	Json::Reader reader;
+// 	Json::StyledStreamWriter writer;
+// 	std::ifstream test("users.json");
+// 	bool parsingSuccessful = reader.parse( test, root );
+// 	if ( !parsingSuccessful )
+// 	{
+//         // report to the user the failure and their locations in the document.
+// 		std::cout  << "Failed to parse configuration: "<< reader.getFormattedErrorMessages();
+// 	}
+// 	if (root[user]["password"] == password) {
+// 		response << client_id << "" << 1;
+// 	}
+// 	else response << client_id << "" << 0;
 
-	s.send(response);
+// 	s.send(response);
 }
 
 void messageHandler(message &client_request, message &server_response, socket &s, string socket_address) {
@@ -287,21 +320,39 @@ void messageHandler(message &client_request, message &server_response, socket &s
 }
 
 void registerToBroker(socket &broker, string address) {
-	FILE* f;
-	int *space = (int *) malloc (sizeof(int));
-	*space = 0;
-	int bytes = 0;
-	if(!(f=fopen("server_data.bin", "rb"))) {
-		f=fopen("server_data.bin", "wb");
-		fwrite(space, sizeof(int), 1, f);
-	} else {
-		fread(space, sizeof(int), 1, f);
+	json space;
+	long usage, bytes;
+	ifstream spc("dSpace.json");
+	spc >> space;
+
+	if (space.find("diskSpace") != space.end()) {
+		usage = space["diskSpace"];
 	}
+	else {
+		usage = 0;
+		space["diskSpace"] = usage;
+		saveSpaceDisk(space);
+	}
+	bytes = 0;
+
+
+	// FILE* f;
+	// int *space = (int *) malloc (sizeof(int));
+	// *space = 0;
+	// int bytes = 0;
+	// if(!(f=fopen("server_data.bin", "rb"))) {
+	// 	f=fopen("server_data.bin", "wb");
+	// 	fwrite(space, sizeof(int), 1, f);
+	// } else {
+	// 	fread(space, sizeof(int), 1, f);
+	// }
 	message broker_register;
-	broker_register << "Register" << address << bytes;
-	broker_register.push_back(space, sizeof(int));
-	fclose(f);
-	free(space);
+	broker_register << "Register" << address << usage << bytes;
+
+	// broker_register.push_back(space, sizeof(int));
+	// fclose(f);
+	// free(space);
+
 	broker.send(broker_register);
 }
 
