@@ -2,7 +2,6 @@
 #include <string>
 #include <fstream>
 #include <zmqpp/zmqpp.hpp>
-#include <dirent.h>
 #include <sys/stat.h>
 #include "src/json.hpp"
 #include "src/MinHeap.h"
@@ -13,6 +12,9 @@ using namespace std;
 using namespace zmqpp;
 
 using json = nlohmann::json;
+
+#define BYTES_FACTO 0.2
+#define SPACE_FACTO 0.8
 
 void HeapSort(MinHeap<Server> Heap) {
 	Server tmp;
@@ -31,14 +33,6 @@ void HeapSort(MinHeap<Server> Heap) {
 	cout<<endl;
 }
 
-void loadUsersFilesInfo (json& users, json& files) {
-	ifstream usr("users.json");
-	usr >> users;
-
-	ifstream fls("files.json");
-	fls >> files;
-}
-
 void saveUsersFilesInfo (json& users, json& files) {
 	ofstream usr("users.json");
 	usr << setw(4) << users << endl;
@@ -50,6 +44,19 @@ void saveUsersFilesInfo (json& users, json& files) {
 
 }
 
+void loadUsersFilesInfo (json& users, json& files) {
+	ifstream usr("users.json");
+	if(usr.is_open())
+		usr >> users;
+
+	ifstream fls("files.json");
+	if(fls.is_open())
+		fls >> files;	
+
+	if(!usr.is_open() || !fls.is_open())
+		saveUsersFilesInfo (users, files);
+}
+
 void listFiles(message& m, message& response, socket& s, json& users) {
 	string files, username;
 
@@ -58,9 +65,9 @@ void listFiles(message& m, message& response, socket& s, json& users) {
 	if(users[username].find("files") != users[username].end()) {
 		// Get list of files
 		for (json::iterator it = users[username]["files"].begin(); it != users[username]["files"].end(); it++) {
-			files += "\t";
+			files += "\n\t";
 			files += it.key() ;
-			files += "\n\t";	
+			files += "\t";	
 		}
 		files += "\n";
 	} else {
@@ -148,7 +155,7 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 					users[username].erase("files");		
 				files.erase(SHA1);
 			}
-			tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+			tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
 			servers_queue.insert(tmp);
 			response << "Updated";
 		}
@@ -169,7 +176,7 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		} else {
 			tmp = servers_queue.deleteAt(query);
 			tmp.bytes_transmitting -= fileSize; 
-			tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+			tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
 			servers_queue.insert(tmp);
 			response << "Updated";
 		}
@@ -186,7 +193,7 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		} else {
 			tmp = servers_queue.deleteAt(query);
 			tmp.space_used -= fileSize;
-			tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+			tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
 			servers_queue.insert(tmp);
 			response << "Updated";
 		}
@@ -246,7 +253,7 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 	tmp = servers_queue.pop();
 	location = tmp.address;
 	tmp.bytes_transmitting += size; 
-	tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+	tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
 	servers_queue.insert(tmp);
 	cout << "File to be uploaded: " << SHA1 << " of size (bytes): " << size << endl;
 	files[SHA1]["owners"] = owners;
@@ -283,7 +290,7 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 			} else {
 				tmp = servers_queue.deleteAt(query);
 				tmp.bytes_transmitting += fsize;
-				tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+				tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
 				servers_queue.insert(tmp);
 				response << location << fsize << SHA1;			
 			}
@@ -350,7 +357,7 @@ void addServer (message& request, message& response, socket& s, MinHeap<Server> 
 	request >> tmp.address;
 	request >> tmp.space_used;
 	request >> tmp.bytes_transmitting;
-	tmp.key = ((double)tmp.bytes_transmitting*0.5)+((double)tmp.space_used*0.5);
+	tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
 
 	// Add server to the priority queue
 	servers_queue.insert(tmp);
