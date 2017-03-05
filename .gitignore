@@ -1,5 +1,6 @@
 fileClient
 fileServer
+*.json
 */Uploads
 *.supp
 broker
