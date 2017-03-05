@@ -1,5 +1,6 @@
-//#ifndef MIN_HEAP_H
-//#define MIN_HEAP_H
+#ifndef MIN_HEAP_H
+#define MIN_HEAP_H
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -145,33 +146,16 @@ public:
 	}
 };
 
-void HeapSort(MinHeap<Server> Heap) {
-	Server tmp;
-	if(Heap.getSize()==0) {
-		cout << "Heap empty!!";
-	}
+#endif
 
-	while(Heap.getSize()>0) {
-		tmp = Heap.pop();
-		cout << "Server Address: " << tmp.address << endl;
-		cout << "Server bytes_transmitting: " << tmp.bytes_transmitting << endl;
-		cout << "Server space_used: " << tmp.space_used << endl;
-		cout << "Server key: " << tmp.key << endl;
-		cout<<endl;
-	}
-	cout<<endl;
-}
-
-//#endif
-
-int main()
+/*int main()
 {
 	int n; //numbers of servers to add
 	cin>>n;
 	Server input, tmp;
-	/***********************
+	***********************
 	initializing dinamically
-	***********************/
+	***********************
 	MinHeap<Server> servers;
 	for(int i=0; i<n; i++) {
 		cin >> input.address;
@@ -181,10 +165,10 @@ int main()
 		servers.insert(input);
 	}
 
-	/*****************************************
+	*****************************************
 	initializing from existing list of servers
-	*****************************************/
-	/*string address;
+	*****************************************
+	*string address;
 	long bytes_transmitting, space_used;
 	vector<Server> A(n);
 	for(int i=0; i<n; i++) {
@@ -194,15 +178,15 @@ int main()
 		input.key = ((double)bytes_transmitting*0.5)+((double)space_used*0.5);
 		A[i] = input;
 	}
-	MinHeap<Server> servers(n, A);*/
+	MinHeap<Server> servers(n, A);*
 
 	cout << "initial state: \n";
 	HeapSort(servers);
 
-	/****************************************************************************
+	****************************************************************************
 	request the first server, change its properties, and put it back in the queue
-	****************************************************************************/
-	/*tmp = servers.pop();
+	****************************************************************************
+	*tmp = servers.pop();
 	cout << "result from pop: \n";
 	HeapSort(servers);
 	//change properties
@@ -212,13 +196,13 @@ int main()
 	//insert the server with new properties
 	servers.insert(tmp);
 	cout << "result after reinsert: \n";
-	HeapSort(servers);*/
+	HeapSort(servers);*
 
-	/*********************************************************************************
+	*********************************************************************************
 	find and specific server (one that has disconnected), and remove it from the queue
-	*********************************************************************************/
+	*********************************************************************************
 
-	/*string query_add = "tcp://127.0.0.1:5557";
+	*string query_add = "tcp://127.0.0.1:5557";
 	int query = servers.search(query_add);
 	if(query < 0) {
 		cout << "Server not registered on queue" << endl;
@@ -227,7 +211,7 @@ int main()
 		servers.deleteAt(query);
 		cout << "Server " << query_add << " removed!" << endl;
 		HeapSort(servers);
-	}*/
+	}*
 
 	return 0;
-}
+}*/

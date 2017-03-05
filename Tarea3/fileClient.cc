@@ -274,10 +274,9 @@ void listFiles(socket &s, string op, string username) {
 
 	request << op << username;
 	s.send(request);
-	s.receive(response);
-
-	response >> files;
 	cout << "Files:" << endl;
+	s.receive(response);
+	response >> files;
 	cout << files;
 }
 
@@ -326,13 +325,13 @@ void messageHandler(message &server_response, socket &s, string username) {
 	}
 }
 
-int main() {
-
+int main(int argc, char* argv[]) {
 	message login, response, create_user, server_response;
 	string op, create, answer;
 	char username[40];
 	string password = "";
 	int access;
+	string broker_address = "tcp://";
 
 	cout << "This is the client\n";
 
@@ -347,11 +346,18 @@ int main() {
 	p.add(standardin, poller::poll_in);
 	p.add(s, poller::poll_in);
 
-	cout << "Connecting to tcp port 5555\n";
-	broker_socket.connect("tcp://localhost:5555");
+	if (argc != 2) {
+		cout << "Please use like this: ./fileClient address:port\n";
+		return EXIT_FAILURE;
+	} else {
+		broker_address.append(argv[1]);
+	}
+
+	cout << "Connecting to tcp port " << broker_address << endl;
+	broker_socket.connect(broker_address);
 
 	while(true) {
-		cout << "Create new account (yes/no): ";
+		cout << "\nCreate new account (yes/no): ";
 		cin >> create;
 
 		if (create == "yes" || create == "y") {
@@ -390,44 +396,48 @@ int main() {
 
 	broker_socket.send(login);
 	broker_socket.receive(response);
-	response >> access;
 
-	if (access) {
-		printMenu();
-		cout <<  "\nEnter action to perform: " << endl;
-		while(true) {
-			if(p.poll()) {
-				if(p.has_input(broker_socket)) {
-					cout <<"Message" << endl;
-				}
-				if(p.has_input(standardin)) {
-					getline(cin, op);
-					if(op == "Upload" || op == "upload" || op == "up") {
-						uploadFile(broker_socket, s, "Upload", username);
-						cin.ignore(numeric_limits<streamsize>::max(), '\n');
-					} else if(op == "Download" || op == "download" || op == "down") {
-						downloadFile(broker_socket, s, "Download", username);
-						cin.ignore(numeric_limits<streamsize>::max(), '\n');
-					} else if(op == "List_files" || op == "list_files" || op == "ls") {
-						listFiles(broker_socket, "List_files", username);
-					} else if(op == "Delete" || op == "delete" || op == "del") {
-						deleteFile(broker_socket, "Delete", username);
-					} else if(op == "Exit" || op == "exit" || op == "ex") {
-						break;
-					} else {
-						cout << "\nInvalid option, please enter one of the listed options!\n";
+	if(response.get(0) == "Failed") {
+		answer = response.get(1);
+		cout << answer;
+	} else {
+		response >> access;
+		if (access) {
+			printMenu();
+			cout <<  "\nEnter action to perform: " << endl;
+			while(true) {
+				if(p.poll()) {
+					if(p.has_input(broker_socket)) {
+						cout <<"Message" << endl;
+					}
+					if(p.has_input(standardin)) {
+						getline(cin, op);
+						if(op == "Upload" || op == "upload" || op == "up") {
+							uploadFile(broker_socket, s, "Upload", username);
+							cin.ignore(numeric_limits<streamsize>::max(), '\n');
+						} else if(op == "Download" || op == "download" || op == "down") {
+							downloadFile(broker_socket, s, "Download", username);
+							cin.ignore(numeric_limits<streamsize>::max(), '\n');
+						} else if(op == "List_files" || op == "list_files" || op == "ls") {
+							listFiles(broker_socket, "List_files", username);
+						} else if(op == "Delete" || op == "delete" || op == "del") {
+							deleteFile(broker_socket, "Delete", username);
+						} else if(op == "Exit" || op == "exit" || op == "ex") {
+							break;
+						} else {
+							cout << "\nInvalid option, please enter one of the listed options!\n";
+						}
+					}
+					if(p.has_input(s)){
+						s.receive(server_response);
+						messageHandler(server_response, s, username);
 					}
 				}
-				if(p.has_input(s)){
-					s.receive(server_response);
-					messageHandler(server_response, s, username);
-				}
 			}
-		}
+		} else
+			cout << "\nUser not found!!\n\n";
 	}
-	else cout << "\nUser not found!!\n\n";
-
-	cout << "Finished\n";
+	cout << "\nFinished\n";
 	broker_socket.close();
 	s.close();
 	ctx.terminate();

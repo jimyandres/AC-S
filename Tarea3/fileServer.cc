@@ -74,36 +74,6 @@ void CheckFile(message &client_request, string path, message &server_response) {
 	}
 }
 
-void listFiles(message &m, message &response, socket &s, string client_id) {
-	string files, user, path;
-
-	m >> user;
-
-	DIR *dir;
-	struct dirent *ent;
-	path = "Uploads/" + user;
-	const char * url =  path.c_str();
-	if ((dir = opendir (url)) != NULL) {
-		/* print all the files and directories within directory */
-		while ((ent = readdir (dir)) != NULL) {
-			files += "\t";
-			files += ent->d_name;
-			files += "\n";
-			//printf ("%s\n", ent->d_name);
-		}
-		files += "\n";
-		closedir (dir);
-
-	} else {
-	  /* could not open directory */
-		perror ("");
-	  //return EXIT_FAILURE;
-	}
-	response << client_id << "" << files;
-	s.send(response);
-
-}
-
 void deleteFile(message &m, message &response, socket &s, string client_id) {
 	string user, filename, l;
 
@@ -308,8 +278,6 @@ void messageHandler(message &client_request, message &server_response, socket &s
 		uploadFile(client_request, server_response, s, client_id, socket_address);
 	} else if(op == "Download") {
 		downloadFile(client_request, server_response, s, client_id, socket_address);
-	} else if(op == "List_files") {
-		listFiles(client_request, server_response, s, client_id);
 	} else if(op == "Delete") {
 		deleteFile(client_request, server_response, s, client_id);
 	} else {
@@ -318,34 +286,56 @@ void messageHandler(message &client_request, message &server_response, socket &s
 	}
 }
 
-int main(int argc, char* argv[]) {
-	string server_address = "tcp://";
-	string download_address = "tcp://*:5556";
+void registerToBroker(socket &broker, string address) {
+	FILE* f;
+	int *space = (int *) malloc (sizeof(int));
+	*space = 0;
+	int bytes = 0;
+	if(!(f=fopen("server_data.bin", "rb"))) {
+		f=fopen("server_data.bin", "wb");
+		fwrite(space, sizeof(int), 1, f);
+	} else {
+		fread(space, sizeof(int), 1, f);
+	}
+	message broker_register;
+	broker_register << "Register" << address << bytes;
+	broker_register.push_back(space, sizeof(int));
+	fclose(f);
+	free(space);
+	broker.send(broker_register);
+}
 
-	if (argc != 2) {
-		cout << "Please use like this: ./fileServer localhost:5555\n";
+int main(int argc, char* argv[]) {
+	string broker_address = "tcp://";
+	string download_address = "tcp://";
+	string response;
+
+	if (argc != 3) {
+		cout << "Please use like this: ./fileServer address:port broker_address:port\n";
 		return EXIT_FAILURE;
 	} else {
-		server_address.append(argv[1]);
+		download_address.append(argv[1]);
+		broker_address.append(argv[2]);
 	}
 
 	cout << "This is the server\n"; 
 
 	context ctx;  
-	socket s(ctx, socket_type::router);
+	socket s(ctx, socket_type::req);
 	socket down(ctx, socket_type::router);
 
 	int standardin = fileno(stdin);
 
-	cout << "Binding socket to tcp port 5555\n";
-	s.bind(server_address);
+	cout << "Binding socket to tcp port " << download_address << endl;
+	s.connect(broker_address);
+	registerToBroker(s, download_address);
 	down.bind(download_address);
 
 	poller p;
 
 	p.add(s, poller::poll_in);
 	p.add(down, poller::poll_in);
-	p.add(standardin);
+	p.add(standardin, poller::poll_in);
 
 	struct stat sb;
 	lstat("Uploads/", &sb);
@@ -361,12 +351,14 @@ int main(int argc, char* argv[]) {
 		if(p.poll()) {
 			if(p.has_input(s)) {
 
-				message client_request, server_response;
-				s.receive(client_request);
+				message broker_response;
+				s.receive(broker_response);
 
 				cout << "Message received!\n";
+				broker_response >> response;
+				cout << response << endl;
 
-				messageHandler(client_request, server_response, s, "");
+				//messageHandler(client_request, server_response, s, "");
 			}
 			if(p.has_input(down)) {
 
