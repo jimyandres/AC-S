@@ -80,8 +80,8 @@ void listFiles(message& m, message& response, socket& s, json& users) {
 }
 
 void deleteFile(message& m, message& response, socket& s, json& users, json& files) {
-	string username, filename, SHA1, serverLocation;
-	size_t fileSize;
+	string username, filename, SHA1, serverLocation, fileSize;
+	//size_t fileSize;
 	message request_delete, response_delete;
 
 	m >> username;
@@ -119,7 +119,7 @@ void deleteFile(message& m, message& response, socket& s, json& users, json& fil
 }
 
 void updateInfo(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
-	string op, fname, username, SHA1, serverLocation;
+	string op, fname, username, SHA1, serverLocation, fileSize_str;
 	size_t fileSize;
 	int verifyUpload;//, owners = 1;
 	Server tmp;
@@ -133,7 +133,8 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		request >> username;
 		request >> fname;
 		request >> SHA1;
-		request >> fileSize;
+		request >> fileSize_str;
+		fileSize = atol(fileSize_str.c_str());
 		request >> serverLocation;
 
 		// Update Priority queue (fileSize, diskSpace)
@@ -164,7 +165,8 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		return;
 	} else if (op == "Download") {
 		request >> SHA1;
-		request >> fileSize;
+		request >> fileSize_str;
+		fileSize = atol(fileSize_str.c_str());
 		request >> serverLocation;
 
 		// Update Priority queue (fileSize, diskSpace)
@@ -184,7 +186,8 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 		return;
 	} else if(op == "Delete") {
 		request >> serverLocation;
-		request >> fileSize;
+		request >> fileSize_str;
+		fileSize = atol(fileSize_str.c_str());
 		query = servers_queue.search(serverLocation);
 		if(query < 0) {
 			cout << "Server not registered!!" << endl;
@@ -208,7 +211,7 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 }
 
 void uploadFile(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
-	string fname, username, SHA1, location;
+	string fname, username, SHA1, location, size_str;
 	size_t size;
 	int owners = 1; // Increment file owners in one
 	Server tmp;
@@ -216,7 +219,8 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 	request >> username;
 	request >> fname;
 	request >> SHA1;
-	request >> size;
+	request >> size_str;
+	size = atol(size_str.c_str());
 
 	// Check if the file was uploaded before
 	if(files.find(SHA1) != files.end()) {
@@ -259,7 +263,7 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 	cout << "File to be uploaded: " << SHA1 << " of size (bytes): " << size << endl;
 	files[SHA1]["owners"] = owners;
 	files[SHA1]["location"] = location;
-	files[SHA1]["size"] = size;
+	files[SHA1]["size"] = size_str;
 	saveUsersFilesInfo(users, files);
 
 	// Send Server info to client, and update priority queue
@@ -269,7 +273,7 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 }
 
 void downloadFile(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
-	string fname, username, SHA1, location;
+	string fname, username, SHA1, location, fsize_str;
 	size_t fsize;
 	Server tmp;
 	request >> username;
@@ -281,7 +285,8 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 		//Search location of file to download
 		if (files[SHA1]["location"].is_string()) {
 			location = files[SHA1]["location"];
-			fsize = files[SHA1]["size"];	// .get<long long int>();
+			fsize_str = files[SHA1]["size"];	// .get<long long int>();
+			fsize = atol(fsize_str.c_str());
 
 			// Send Server info to client, and update priority queue
 			int query = servers_queue.search(location);
@@ -293,7 +298,7 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 				tmp.bytes_transmitting += fsize;
 				tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
 				servers_queue.insert(tmp);
-				response << location << fsize << SHA1;			
+				response << location << fsize_str << SHA1;			
 			}
 		}
 	}
@@ -354,10 +359,13 @@ void verifyUser(message& m, message& response, socket& s, json& users) {
 void addServer (message& request, message& response, socket& s, MinHeap<Server> &servers_queue) {
 	//string serverLocation, diskSpace;
 	Server tmp;
+	string space_used_str, bytes_transmitting_str;
 
 	request >> tmp.address;
-	request >> tmp.space_used;
-	request >> tmp.bytes_transmitting;
+	request >> space_used_str;
+	tmp.space_used = atol(space_used_str.c_str());
+	request >> bytes_transmitting_str;
+	tmp.bytes_transmitting = atol(bytes_transmitting_str.c_str());
 	tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
 
 	// Add server to the priority queue

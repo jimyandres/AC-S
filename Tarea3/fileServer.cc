@@ -127,12 +127,13 @@ void updateDiskUsage (long fileSize) {
 }
 
 void deleteFile(message &m, message &response, socket &s, string client_id, string download_address, socket &broker) {
-	string user, filename, l, ans;
+	string user, filename, l, ans, fileSize_str;
 	long fileSize;
 	message request_broker, response_broker;
 
 	m >> filename;
-	m >> fileSize;
+	m >> fileSize_str;
+	fileSize = atol(fileSize_str.c_str());
 
 	l = "Uploads/" + filename;
 	response << client_id << "" << "DeleteDone";
@@ -146,7 +147,7 @@ void deleteFile(message &m, message &response, socket &s, string client_id, stri
 	else {
 		response << "File successfully deleted" << download_address;
 		updateDiskUsage(-1*fileSize);
-		request_broker << "UpdateInfo" << "Delete" << download_address << fileSize;
+		request_broker << "UpdateInfo" << "Delete" << download_address << fileSize_str;
 		broker.send(request_broker); 
 		broker.receive(response_broker);
 		if(response_broker.get(0) == "Error") {
@@ -160,7 +161,7 @@ void deleteFile(message &m, message &response, socket &s, string client_id, stri
 }
 
 void uploadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker, int delay) {
-	string fname, path, username, fname_client, ans;
+	string fname, path, username, fname_client, ans, file_size_str, total_str;
 	size_t size, total;
 	char * data;
 	char file_SHA1[SHA_DIGEST_LENGTH*2+1], broker_fname[100];
@@ -178,8 +179,10 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	path = "Uploads/";
 	path.append(fname);
 	cout << "Path: " << path << endl;
-	client_request >> file_size;
-	client_request >> total;
+	client_request >> file_size_str;
+	file_size = atol(file_size_str.c_str());
+	client_request >> total_str;
+	total = atol(total_str.c_str());
 
 	if (total == 0)
 		f = fopen(path.c_str(), "wb");
@@ -189,9 +192,9 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 		ChecksumToString((unsigned char *)&check_sum, file_SHA1);
 		if(CheckFile(client_request, path, server_response, broker_fname)) {
 			updateDiskUsage(file_size);
-			request_broker << "UpdateInfo" << "Upload" << 1 << username << broker_fname << file_SHA1 << file_size << download_address;
+			request_broker << "UpdateInfo" << "Upload" << 1 << username << broker_fname << file_SHA1 << file_size_str << download_address;
 		} else {
-			request_broker << "UpdateInfo" << "Upload" << 0 << username << broker_fname << file_SHA1 << file_size << download_address;
+			request_broker << "UpdateInfo" << "Upload" << 0 << username << broker_fname << file_SHA1 << file_size_str << download_address;
 		}
 
 		// Simulate Delay
@@ -222,13 +225,14 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	fwrite(data, 1, size, f);
 	fclose(f);
 	total += size;
+	total_str = to_string(total);
 
-	server_response << "Upload" << fname_client << fname << total << file_size;
+	server_response << "Upload" << fname_client << fname << total_str << file_size_str;
 	s.send(server_response);
 }
 
 void downloadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker, int delay) {
-	string op = "Download";
+	string op = "Download", offset_str, sz_str;
 	FILE* f;
 	char *data;
 	size_t size, offset;
@@ -242,8 +246,10 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	client_request >> username;
 	client_request >> client_fname;
 	client_request >> fname;
-	client_request >> offset;
-	client_request >> sz;
+	client_request >> offset_str;
+	offset = atol(offset_str.c_str());
+	client_request >> sz_str;
+	sz = atol(sz_str.c_str());
 
 	path = "Uploads/";
 
@@ -258,18 +264,18 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	server_response << client_id << "" << op << client_fname << fname;
 	fflush(f);
 
-	server_response << offset;
-	server_response << sz;
+	server_response << offset_str;
+	server_response << sz_str;
 
 	if(offset == 0) {
-		cout <<"File size in bytes: " << sz << endl;
+		cout <<"File size in bytes: " << sz_str << endl;
 	} else if((int)offset == sz) {
 		fclose(f);
 		getCheckSum(path, (unsigned char *)&check_sum);
 		server_response.push_back(check_sum, SHA_DIGEST_LENGTH);
 		server_response.push_back(download_address);
 		
-		request_broker << "UpdateInfo" << "Download" << fname << sz << download_address;
+		request_broker << "UpdateInfo" << "Download" << fname << sz_str << download_address;
 
 		// Simulate Delay
 		sleep(delay);
@@ -337,7 +343,7 @@ void registerToBroker(socket &broker, string address) {
 	}
 	bytes = 0;
 	message broker_register;
-	broker_register << "Add" << address << usage << bytes;
+	broker_register << "Add" << address << to_string(usage) << to_string(bytes);
 	broker.send(broker_register);
 }
 

@@ -111,7 +111,7 @@ void CheckFile(message &server_response, string path) {
 
 void ReadFile(message &answer, socket &upload_socket, string username) {
 	FILE* f;
-	string path, fname;
+	string path, fname, file_size_str, offset_str;
 	size_t offset, size;
 	long file_size;
 	char *data;
@@ -120,9 +120,11 @@ void ReadFile(message &answer, socket &upload_socket, string username) {
 
 	answer >> path;
 	answer >> fname;
-	answer >> offset;
-	answer >> file_size;
-	file_message << "" << "Upload" << username << path << fname << file_size << offset;
+	answer >> offset_str;
+	offset = atol(offset_str.c_str());
+	answer >> file_size_str;
+	file_message << "" << "Upload" << username << path << fname << file_size_str << offset_str;
+	file_size = atol(file_size_str.c_str());
 
 	if((int)offset == file_size) {
 		getCheckSum(path, (unsigned char *)&check_sum);
@@ -148,7 +150,7 @@ void ReadFile(message &answer, socket &upload_socket, string username) {
 
 void SaveFile(message &answer, socket &download_socket, string username) {
 	message req_check_sum, metadata_file;
-	string path, fname, server_address, server_fname;
+	string path, fname, server_address, server_fname, file_size_str, offset_str;
 	size_t size, offset;
 	int size_chunk;
 	char *data;
@@ -171,8 +173,10 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	path.append(fname);
 
 	answer >> server_fname;
-	answer >> offset;
-	answer >> file_size;
+	answer >> offset_str;
+	offset = atol(offset_str.c_str());
+	answer >> file_size_str;
+	file_size = atol(file_size_str.c_str());
 
 	if (offset == 0) {
 		f = fopen(path.c_str(), "wb");
@@ -193,6 +197,7 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	fwrite(data, 1, size, f);
 	offset += size;
 	fclose(f);
+	offset_str = to_string(offset);
 
 	/*progress = ((double)offset/(double)file_size);
 	if((progress*100.0) <= 100.0){
@@ -203,20 +208,21 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	if (size == 0 || (int)size < size_chunk) {
 		cout << endl;
 		cout << "Bytes received: " << offset << endl;
-		req_check_sum << "" << "Download" << username << fname << server_fname << offset << file_size;
+		req_check_sum << "" << "Download" << username << fname << server_fname << offset_str << file_size_str;
 		download_socket.send(req_check_sum);
 	} else {
-		metadata_file << "" << "Download" << username << fname << server_fname << offset << file_size;
+		metadata_file << "" << "Download" << username << fname << server_fname << offset_str << file_size_str;
 		download_socket.send(metadata_file);
 	}
 }
 
 void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
 	string server_address;
-	string server_fname, fname;
+	string server_fname, fname, file_size_str;
 	message request_broker, response_broker, metadata_file, req_check_sum;
 	size_t offset = 0;
-	long file_size = -1;
+	string offset_str = to_string((int)offset);
+	//long file_size = -1;
 
 	cout << "Enter file name: \n";
 	getline(cin, fname);
@@ -237,7 +243,7 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 		return;
 	} else {
 		response_broker >> server_address;
-		response_broker >> file_size;
+		response_broker >> file_size_str;
 		response_broker >> server_fname;
 		cout << "Connected to: " << server_address << endl;
 	}
@@ -245,7 +251,7 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	download_socket.connect(server_address); //connect to server
 
 	cout << "Saving..." << endl;
-	metadata_file << "" << op << username << fname << server_fname << offset << file_size;
+	metadata_file << "" << op << username << fname << server_fname << offset_str << file_size_str;
 	download_socket.send(metadata_file);
 }
 
@@ -255,7 +261,7 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 	size_t size, offset;
 	char file_name[100], file_SHA1[SHA_DIGEST_LENGTH*2+1];
 	message file_message, server_answer, check_sum_msg, request_broker, response_broker;
-	string empty, server_address, fname, server_fname;
+	string empty, server_address, fname, server_fname, file_size_str, offset_str;
 	//char extension[] = ".dat";
 
 	cout << "Enter file name: " << endl;
@@ -276,14 +282,15 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 
 	fseek(f, 0L, SEEK_END);
 	long sz = ftell(f);
-	cout << "\nFile size (bytes): " << sz << endl;
+	file_size_str = to_string(sz);
+	cout << "\nFile size (bytes): " << file_size_str << endl;
 	fseek(f, 0L, SEEK_SET);
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	getCheckSum(fname, (unsigned char *)&check_sum);
 	ChecksumToString((unsigned char *)&check_sum, file_SHA1);
 
-	request_broker << "Upload" << username << file_name << file_SHA1 << sz;
+	request_broker << "Upload" << username << file_name << file_SHA1 << file_size_str;
 	broker_socket.send(request_broker);
 	broker_socket.receive(response_broker);
 
@@ -301,8 +308,9 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 
 	upload_socket.connect(server_address); //connect to server
 	offset = 0;
+	offset_str = to_string((int)offset);
 	cout << "File to upload: " << file_name << "\n";
-	file_message << "" << op << username << fname << file_SHA1 << sz << offset << CHUNK_SIZE;
+	file_message << "" << op << username << fname << file_SHA1 << file_size_str << offset_str << CHUNK_SIZE;
 
 	data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
 	size = fread(data, 1, CHUNK_SIZE, f);
