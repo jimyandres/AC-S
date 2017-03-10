@@ -145,6 +145,7 @@ void ReadFile(message &answer, socket &upload_socket, string username) {
 	file_message << CHUNK_SIZE;
 	file_message.push_back(data, size);
 	free(data);
+	fclose(f);
 	upload_socket.send(file_message);
 }
 
