@@ -4,3 +4,5 @@ fileServer
 */Uploads
 *.supp
 broker
+client
+node
