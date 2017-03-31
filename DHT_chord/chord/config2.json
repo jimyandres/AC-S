@@ -1,0 +1,6 @@
+{
+  "bootstrap": true,
+  "port": "6666",
+  "successor": "5555",
+  "client": "8888"
+}
