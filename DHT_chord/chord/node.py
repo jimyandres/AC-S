@@ -45,8 +45,15 @@ def localOP(request):
         value = request['value']
         hash_table[key] = value
         print("Stored {} {} at {}".format(key,value,node_name))
-    else:
-        print("Local operation not implemented")
+    elif operation == 'delete':
+        key = request['key']
+        value = hash_table[key]
+        hash_table.pop(key, None)
+        print("Key {}, with value {} was deleted from {}".format(key,value,node_name))
+    elif operation == 'search':
+        key = request['key']
+        value = hash_table[key]
+        print("The key {} is associated with the value {} at {}".format(key,value,node_name))
 
 
 def handleClientRequest(request, successorSocket):
