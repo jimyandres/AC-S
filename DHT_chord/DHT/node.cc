@@ -64,6 +64,7 @@ void handleClientRequest(message &req, socket &successor) {
 	socket sc(ctx, socket_type::push);
 	sc.connect(addressClient);
 	//clients[idClient] = sc;
+	//clients.emplace(idClient,sc);
 	//pair<string, socket>client(idClient, sc);
 	//clients.insert(client);
 	
