@@ -20,39 +20,67 @@ void getID(string Value, char ans[SHA_DIGEST_LENGTH*2+1]) {
 }
 
 int main(int argc, char** argv) {
-	if(argc != 2) {
-		cout << "Enter server address!" << endl;
+	if(argc != 3) {
+		cout << "Enter server address and client address!" << endl;
 		return EXIT_FAILURE;
 	}
 
+	// Socket to request to servers
 	context ctx;
-	socket serverSocket(ctx, socket_type::req);	
-	serverSocket.connect("tcp://localhost:" + string(argv[1]));
+	socket req_serverSocket(ctx, socket_type::push);	
+	req_serverSocket.connect("tcp://localhost:" + string(argv[1]));
+
+	// Socket to receive servers answers
+	string client_address = "tcp://*:" + string(argv[2]);
+	string nodeName = "tcp://localhost:" + string(argv[2]);
+	cout << nodeName << endl;
+	socket ans_serverSocket(ctx, socket_type::pull);	
+	ans_serverSocket.bind(client_address);
+
+	int standardin = fileno(stdin);
+	poller p;
+
+	p.add(standardin, poller::poll_in);
+	p.add(ans_serverSocket, poller::poll_in);
 
 	cout << "Enter something to send: " << endl;
 	while(true) {
-		string val, status, hash, err_msg;
-		char key[SHA_DIGEST_LENGTH*2+1];
-		getline(cin, val);
-		getID(val, key);
+		if(p.poll()) {
+			if(p.has_input(standardin)) {
+				string val;
+				char key[SHA_DIGEST_LENGTH*2+1];
+				getline(cin, val);
+				if(val == "q" || val == "quit" || val == "Quit" || val == "ex" || val == "Exit" || val == "exit") {
+					break;
+				}
+				cout << "Input is: " << val << endl;
+				getID(val, key);
 
-		message req, res;
-		req << "Post" << key << val;
-		serverSocket.send(req);
-		serverSocket.receive(res);
+				message req;
+				req << nodeName << nodeName << key << "insert" << val;
+				req_serverSocket.send(req);
+				cout << "Message sended" << endl;
+			}
+			if(p.has_input(ans_serverSocket)) {
+				string status, hash, err_msg;
+				message res;
+				ans_serverSocket.receive(res);
 
-		res >> status;
-		if(status == "Ok") {
-			res >> hash;
-			cout << "Hash: " << hash << endl;
-		} else if(status == "Error") {
-			res >> err_msg;
-			cout << "Error: " << err_msg << endl;
+				res >> status;
+				if(status == "Ok") {
+					res >> hash;
+					cout << "Hash: " << hash << endl;
+				} else if(status == "Error") {
+					res >> err_msg;
+					cout << "Error: " << err_msg << endl;
+				}
+				//cout << key << req << endl;
+			}
 		}
-		//cout << key << req << endl;
 	}
 
-	serverSocket.close();
+	req_serverSocket.close();
+	ans_serverSocket.close();
 	ctx.terminate();
 	return 0;
 }
