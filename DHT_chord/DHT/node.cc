@@ -9,7 +9,7 @@
 using namespace std;
 using namespace zmqpp;
 
-unordered_map<string, socket> clients;
+unordered_map<string, socket*> clients;
 context ctx;
 unordered_map<string, string> hashTable;
 string lowerBound = "", upperBound = "";
@@ -60,10 +60,10 @@ void handleClientRequest(message &req, socket &successor) {
 	
 	string idClient, addressClient, key;
 	req >> idClient >> addressClient;
-	
-	socket sc(ctx, socket_type::push);
-	sc.connect(addressClient);
-	//clients[idClient] = sc;
+		
+	socket* sc = new socket(ctx, socket_type::push);
+	clients[idClient] = sc;
+	clients[idClient]->connect(addressClient);
 	//clients.emplace(idClient,sc);
 	//pair<string, socket>client(idClient, sc);
 	//clients.insert(client);
@@ -75,6 +75,12 @@ void handleClientRequest(message &req, socket &successor) {
 	} else {
 		cout << "Error: Not my responsability, delegating..." << endl;
 		successor.send(delegate_req);
+	}
+}
+
+void deleteSockets() {
+	for(auto& e:clients) {
+		delete e.second;
 	}
 }
 
@@ -155,7 +161,7 @@ int main(int argc, char** argv) {
 			}
 		}
 	}
-
+	deleteSockets();
 	mySocket.close();
 	mySuccessor.close();
 	clientsSocket.close();
