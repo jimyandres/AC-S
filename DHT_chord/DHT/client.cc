@@ -1,6 +1,8 @@
 #include <iostream>
+#include <sstream>
 //#include <stdio.h>
 #include <string.h>
+#include <vector>
 #include <zmqpp/zmqpp.hpp>
 #include <openssl/sha.h>
 
@@ -17,6 +19,19 @@ void getID(string Value, char ans[SHA_DIGEST_LENGTH*2+1]) {
 	
 	SHA1((unsigned char *)Value.c_str(), Value.size(), (unsigned char *)&check_sum);
 	ChecksumToString((unsigned char *)&check_sum, ans);
+}
+
+vector<string> getOptions(string input) {
+	vector<string> inputs;
+    istringstream f(input);
+    string tmp;   
+    int i =0;
+    while (getline(f, tmp, ' ') && i < 2) {
+        //cout << tmp << endl;
+        inputs.push_back(tmp);
+        i++;
+    }
+    return inputs;
 }
 
 int main(int argc, char** argv) {
@@ -43,36 +58,45 @@ int main(int argc, char** argv) {
 	p.add(standardin, poller::poll_in);
 	p.add(ans_serverSocket, poller::poll_in);
 
-	cout << "Enter something to send: " << endl;
 	while(true) {
+		cout << "Enter something to send: " << endl;
 		if(p.poll()) {
 			if(p.has_input(standardin)) {
 				string val;
+				vector<string> inputs;
 				char key[SHA_DIGEST_LENGTH*2+1];
 				getline(cin, val);
-				if(val == "q" || val == "quit" || val == "Quit" || val == "ex" || val == "Exit" || val == "exit") {
-					break;
-				}
-				cout << "Input is: " << val << endl;
-				getID(val, key);
+				if(val != ""){
+					inputs = getOptions(val);
+					if(inputs.front() == "q" || inputs.front() == "quit" || inputs.front() == "Quit" || inputs.front() == "ex" || inputs.front() == "Exit" || inputs.front() == "exit") {
+						break;
+					}
+					if(inputs.size() < 2) {
+						cout << "Missing argument!" << endl;
+					} else {
+						cout << "Input is: " << inputs.back() << endl;
+						//cout << "Input is: " << val << endl;
+						getID(inputs.back(), key);
 
-				message req;
-				req << nodeName << nodeName << key << "insert" << val;
-				req_serverSocket.send(req);
-				cout << "Message sended" << endl;
+						message req;
+						req << nodeName << nodeName << key << inputs.front() << inputs.back();
+						req_serverSocket.send(req);
+						cout << "Message sended" << endl;
+					}
+				}
 			}
 			if(p.has_input(ans_serverSocket)) {
-				string status, hash, err_msg;
+				string status, ok_msg, err_msg;
 				message res;
 				ans_serverSocket.receive(res);
 
 				res >> status;
 				if(status == "Ok") {
-					res >> hash;
-					cout << "Hash: " << hash << endl;
+					res >> ok_msg;
+					cout << ok_msg << endl;
 				} else if(status == "Error") {
 					res >> err_msg;
-					cout << "Error: " << err_msg << endl;
+					cout << err_msg;
 				}
 				//cout << key << req << endl;
 			}
