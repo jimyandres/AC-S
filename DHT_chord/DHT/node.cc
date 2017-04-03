@@ -9,10 +9,10 @@
 using namespace std;
 using namespace zmqpp;
 
-unordered_map<string, socket*> clients;
-context ctx;
-unordered_map<string, string> hashTable;
-string lowerBound = "", upperBound = "";
+static unordered_map<string, socket*> clients;
+static context ctx;
+static unordered_map<string, string> hashTable;
+static string lowerBound = "", upperBound = "";
 
 void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH*2+1]) {
     for(int i = 0; i < SHA_DIGEST_LENGTH; i++)
@@ -34,24 +34,41 @@ bool inRange(string key) {
 	}
 }
 
-void localOP(message &req, string key) {
+void localOP(message &req, string key, string idClient) {
 	string op, val;
 	req >> op;
+	message response;
 	if(op == "insert") {
 		req >> val;
-		//hashTable[key] = val;
 		hashTable.emplace(key,val);
+		response << "Ok" << "Val: \"" + val + "\" with key: \"" + key + "\" successfully inserted at: \"" + upperBound + "\""; 
 		cout << "Stored Key: " << key << " Val: " << val << " at: " << upperBound << endl;
 	} else if(op == "delete") {
-		val = hashTable[key];
-		hashTable.erase(key);
-		cout << "Key: " << key << " with Val: " << val << " deleted from: " << upperBound << endl;
+		auto it = hashTable.find(key);
+		if(it != hashTable.end()){
+			val = hashTable[key];
+			hashTable.erase(key);
+			response << "Ok" << "Val: \"" + val + "\" with key: \"" + key + "\" successfully deleted from: \"" + upperBound + "\"";
+			cout << "Key: " << key << " with Val: " << val << " deleted from: " << upperBound << endl;
+		} else {
+			response << "Error: " << " Key: " + key + " not found";
+			cout << "Key: " << key << " not found!!" << endl;
+		}
 	} else if(op == "search") {
-		val = hashTable[key];
-		cout << "The Key: " << key << " is associated with the value: " << val << " at: " << upperBound << endl;
+		auto it = hashTable.find(key);
+		if(it != hashTable.end()){
+			val = hashTable[key];
+			response << "Ok" << "Key: \"" + key + "\" is associated with the value: \"" + val + "\" at: \"" + upperBound + "\"" ;
+			cout << "The Key: " << key << " is associated with the value: " << val << " at: " << upperBound << endl;
+		} else {
+			response << "Error: " << " Key: " + key + " not found";
+			cout << "Key: " << key << " not found!!" << endl;
+		}
 	} else {
+		response << "Error: " << " invalid option: " + op;
 		cout << "Unknown option: " << op << endl;
 	}
+	clients[idClient]->send(response);
 }
 
 void handleClientRequest(message &req, socket &successor) {
@@ -60,18 +77,18 @@ void handleClientRequest(message &req, socket &successor) {
 	
 	string idClient, addressClient, key;
 	req >> idClient >> addressClient;
-		
-	socket* sc = new socket(ctx, socket_type::push);
-	clients[idClient] = sc;
-	clients[idClient]->connect(addressClient);
-	//clients.emplace(idClient,sc);
-	//pair<string, socket>client(idClient, sc);
-	//clients.insert(client);
+	
+	auto it = clients.find(idClient);
+	if(it == clients.end()) {
+		socket* sc = new socket(ctx, socket_type::push);
+		clients.emplace(idClient,sc);
+		clients[idClient]->connect(addressClient);
+	}
 	
 	req >> key;
 	if(inRange(key)) {
 		cout << "Key " << key << " is mine!" << endl;
-		localOP(req, key);
+		localOP(req, key, idClient);
 	} else {
 		cout << "Error: Not my responsability, delegating..." << endl;
 		successor.send(delegate_req);
@@ -99,7 +116,6 @@ int main(int argc, char** argv) {
 
 	cout << "Listening on " << myAddress << " and connectig to neighbor on " << successorAddress << endl;
 
-	//context ctx;
 	socket mySocket(ctx, socket_type::pair);
 	mySocket.bind("tcp://*:" + string(myAddress));
 
@@ -144,6 +160,9 @@ int main(int argc, char** argv) {
 				} else if(input == "sh") {
 					cout << "Hash Table contains: " << endl;
 					for (auto& x: hashTable)
+						cout << x.first << ": " << x.second << endl;
+					cout << "Clients Table contains: " << endl;
+					for (auto& x: clients)
 						cout << x.first << ": " << x.second << endl;
 				}
 			}
