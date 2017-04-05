@@ -218,7 +218,6 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 		fseek(f, 0L, SEEK_END);
 	}
 	client_request >> chunk_size;
-	cout << "here";
 
 	size = client_request.size(9);
 
@@ -265,7 +264,7 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 }
 
 void downloadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker, int delay) {
-	string op = "Download", offset_str, sz_str;
+	string op = "Download", offset_str, sz_str, nPart_str;
 	FILE* f;
 	char *data;
 	size_t size, offset;
@@ -282,13 +281,17 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	client_request >> fname;
 	client_request >> offset_str;
 	offset = atol(offset_str.c_str());
-	client_request >> nPart;
+	client_request >> nPart_str;
+	nPart = atol(nPart_str.c_str());
+	cout << nPart;
 	client_request >> sz_str;
 	sz = atol(sz_str.c_str());
+	cout << sz;
+
 
 	path = "Uploads/";
 
-	path.append(fname+"."+to_string(i));
+	path.append(fname+"."+to_string(nPart-1));
 
 	if(!(f = fopen(path.c_str(), "rb"))) {
 		server_response << client_id << "" << "Error" << "The file \"" + fname + "\" requested does not exist or couldn't be read!!" << download_address;
@@ -326,7 +329,9 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 		return;
 	}
 
-	fseek(f, offset, SEEK_SET);
+	cout << "here1" << endl;
+
+	fseek(f, 0, SEEK_SET);
 
 	data = (char *) malloc (CHUNK_SIZE);
 	assert(data);
@@ -336,14 +341,15 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	server_response << offset_str;
 	server_response << to_string(size);
 
-	server_response << nPart;
-
 	server_response << CHUNK_SIZE;
 	server_response.push_back(data, size);
 
 	fclose(f);
 	free(data);
 	// s.send(server_response);
+
+	offset += sz;
+	cout << "here2" << endl;
 
 	if((int)offset == sz) {
 		// fclose(f);
@@ -356,6 +362,7 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 
 		// Simulate Delay
 		sleep(delay);
+		cout << "here3" << endl;
 
 		broker.send(request_broker); 
 		broker.receive(response_broker);
@@ -365,6 +372,7 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 		} else if(response_broker.get(0) == "Updated") {
 			cout << "Updated on broker" << endl;
 		}
+		cout << "here4" << endl;
 
 		s.send(server_response);
 		return;

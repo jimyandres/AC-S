@@ -150,7 +150,7 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 			tmp.bytes_transmitting -= fileSize; 
 			if (verifyUpload) {
 				// Update File and User info
-				users[username]["files"][fname] = SHA1;
+				users[username]["files"][fname] = SHA1.substr(0,40);
 				tmp.space_used += fileSize;
 			} else {
 				// Delete File and User info
@@ -315,14 +315,15 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 	request >> username;
 	request >> fname;
 
+
 	if (users[username].count("files") && users[username]["files"].count(fname)) {
 		SHA1 = users[username]["files"][fname];
 
 		//Search location of file to download
-		if (files[SHA1]["location"].is_array()) {
+		if (files[SHA1]["parts"].is_array()) {
 			json locations = files[SHA1]["parts"];
 
-			location = files[SHA1]["location"];
+			// location = files[SHA1]["location"];
 			fsize_str = files[SHA1]["size"];	// .get<long long int>();
 			fsize = atol(fsize_str.c_str());
 
@@ -333,7 +334,8 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 			int count = locations.size();
 			for (int i = 0; i < count; ++i)
 			{
-				int query = servers_queue.search(locations[i]);
+				location = locations[i];
+				int query = servers_queue.search(location);
 				if(query < 0) {
 					cout << "Server not connected!!" << endl;
 					status = false;
@@ -345,7 +347,7 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 					servers_queue.insert(tmp);		
 				}
 			}
-			if status 
+			if (status) 
 				response << locations.dump() << fsize_str << SHA1;	
 			else
 				response << "Error" << "Servers aren't connected!!";

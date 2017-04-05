@@ -151,11 +151,11 @@ void ReadFile(message &answer, socket &upload_socket, string username) {
 	upload_socket.send(file_message);
 }
 
-void SaveFile(message &answer, socket &download_socket, string username) {
+void SaveFile(message &answer, socket &download_socket, string username, size_t& offset_c) {
 	message req_check_sum, metadata_file;
 	string path, fname, server_address, server_fname, file_size_str, offset_str;
 	size_t size, offset;
-	int size_chunk, nPart;
+	int size_chunk;
 	char *data;
 	FILE* f;
 	long file_size;
@@ -192,14 +192,13 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 		fseek(f, 0L, SEEK_END);
 	}
 
-	answer >> nPart;
-
 	answer >> size_chunk;
 	size = answer.size(7);
 	data = (char*) answer.raw_data(7);
 
 	fwrite(data, 1, size, f);
 	offset += size;
+	offset_c = offset;
 	fclose(f);
 	offset_str = to_string(offset);
 
@@ -223,7 +222,7 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
 	string servers_address;
 	string server_fname, fname, file_size_str;
-	message request_broker, response_broker, metadata_file, req_check_sum;
+	message request_broker, response_broker, metadata_file, req_check_sum, server_response;
 	size_t offset = 0;
 	string offset_str = to_string((int)offset);
 
@@ -254,12 +253,27 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	
 	// bool status = true;
 	int count = locations.size();
+	int num=0;
 	for (int i = 0; i < count; ++i) {
 		cout << "Connected to: " << locations[i] << endl;
 		download_socket.connect(locations[i]); //connect to server
 		cout << "Saving part " << i << "..." << endl;
-		metadata_file << "" << op << username << fname << server_fname << offset_str << i ;// << file_size_str;
+		string part = to_string((int)num+1);
+		cout << part;
+		metadata_file << "" << op << username << fname << server_fname << to_string(offset) << part << file_size_str ;
 		download_socket.send(metadata_file);
+
+		// s.receive(server_response);
+		download_socket.receive(server_response);
+		server_response >> op;
+		server_response >> op;
+		if (op == "Download")
+			SaveFile(server_response, download_socket, username, offset);
+		else {
+			cout << "Error downloading file";
+			break;
+		}
+		num++;
 	}
 
 	// cout << "Connected to: " << servers_address << endl;
@@ -329,7 +343,7 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 
 	offset = 0;
 
-	for (int i = 0; i < locations.size(); ++i)
+	for (int i = 0; i < (int)locations.size(); ++i)
 	{
 		cout << "Connected to: " << locations[i] << endl;
 		upload_socket.connect(locations[i]); //connect to server
@@ -348,7 +362,6 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		free(data);
 
 		upload_socket.send(file_message);
-		cout << "here" <<endl;
 
 		// offset += CHUNK_SIZE;
 	}
@@ -417,7 +430,8 @@ void messageHandler(message &server_response, socket &s, string username) {
 	if(op == "Upload") {
 		ReadFile(server_response, s, username);
 	} else if(op == "Download") {
-		SaveFile(server_response, s, username);
+		size_t temp = 0;
+		SaveFile(server_response, s, username, temp);
 	} else if(op == "Error") {
 		server_response >> msg;
 		cout << "Error: " << msg << endl;
