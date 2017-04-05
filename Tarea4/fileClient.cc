@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 
 #include <openssl/sha.h>
+#include "src/json.hpp"
 
 #include <unistd.h> 		//Get the user id of the current user
 #include <sys/types.h>
@@ -14,6 +15,7 @@
 
 using namespace std;
 using namespace zmqpp;
+using json = nlohmann::json;
 
 void printChecksum (unsigned char * check_sum) {
 	char mdString[SHA_DIGEST_LENGTH*2+1];
@@ -153,10 +155,9 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	message req_check_sum, metadata_file;
 	string path, fname, server_address, server_fname, file_size_str, offset_str;
 	size_t size, offset;
-	int size_chunk;
+	int size_chunk, nPart;
 	char *data;
 	FILE* f;
-	//double progress;
 	long file_size;
 
 	answer >> fname;
@@ -191,6 +192,8 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 		fseek(f, 0L, SEEK_END);
 	}
 
+	answer >> nPart;
+
 	answer >> size_chunk;
 	size = answer.size(7);
 	data = (char*) answer.raw_data(7);
@@ -218,16 +221,14 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 }
 
 void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
-	string server_address;
+	string servers_address;
 	string server_fname, fname, file_size_str;
 	message request_broker, response_broker, metadata_file, req_check_sum;
 	size_t offset = 0;
 	string offset_str = to_string((int)offset);
-	//long file_size = -1;
 
 	cout << "Enter file name: \n";
 	getline(cin, fname);
-	//cin.ignore(numeric_limits<streamsize>::max(), '\n');
 
 	if(fname == "cancel" || fname == "q") {
 		cout << "Canceled action!!" << endl;
@@ -238,22 +239,35 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	broker_socket.send(request_broker);
 	broker_socket.receive(response_broker);
 
+	json locations;
+
 	if(response_broker.get(0) == "Error") {
-		server_address = response_broker.get(1);
-		cout << "Error: " <<  server_address << endl;
+		servers_address = response_broker.get(1);
+		cout << "Error: " <<  servers_address << endl;
 		return;
 	} else {
-		response_broker >> server_address;
+		response_broker >> servers_address;
+		locations = json::parse(servers_address);
 		response_broker >> file_size_str;
 		response_broker >> server_fname;
-		cout << "Connected to: " << server_address << endl;
 	}
 	
-	download_socket.connect(server_address); //connect to server
+	// bool status = true;
+	int count = locations.size();
+	for (int i = 0; i < count; ++i) {
+		cout << "Connected to: " << locations[i] << endl;
+		download_socket.connect(locations[i]); //connect to server
+		cout << "Saving part " << i << "..." << endl;
+		metadata_file << "" << op << username << fname << server_fname << offset_str << i ;// << file_size_str;
+		download_socket.send(metadata_file);
+	}
 
-	cout << "Saving..." << endl;
-	metadata_file << "" << op << username << fname << server_fname << offset_str << file_size_str;
-	download_socket.send(metadata_file);
+	// cout << "Connected to: " << servers_address << endl;
+	// download_socket.connect(server_address); //connect to server
+
+	// cout << "Saving..." << endl;
+	// metadata_file << "" << op << username << fname << server_fname << offset_str << file_size_str;
+	// download_socket.send(metadata_file);
 }
 
 void uploadFile(socket &broker_socket, socket &upload_socket, string op, string username) {
@@ -262,8 +276,10 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 	size_t size, offset;
 	char file_name[100], file_SHA1[SHA_DIGEST_LENGTH*2+1];
 	message file_message, server_answer, check_sum_msg, request_broker, response_broker;
-	string empty, server_address, fname, server_fname, file_size_str, offset_str;
+	string empty, servers_address, fname, server_fname, file_size_str, offset_str;
 	//char extension[] = ".dat";
+
+	json locations;
 
 	cout << "Enter file name: " << endl;
 	getline(cin, fname);
@@ -295,30 +311,60 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 	broker_socket.send(request_broker);
 	broker_socket.receive(response_broker);
 
+
 	if(response_broker.get(0) == "Done") {
 		cout << "\"" << file_name << "\" successfully uploaded!!" << endl;
 		return;
 	} else if(response_broker.get(0) == "Error") {
-		server_address = response_broker.get(1);
-		cout << "Error: " <<  server_address << endl;
+		servers_address = response_broker.get(1);
+
+		locations = json::parse(servers_address);
+
+		cout << "Error: " <<  locations[0] << endl;
 		return;
 	} else {
-		response_broker >> server_address;
-		cout << "Connected to: " << server_address << endl;
+		response_broker >> servers_address;
+		locations = json::parse(servers_address);
 	}
 
-	upload_socket.connect(server_address); //connect to server
 	offset = 0;
-	offset_str = to_string((int)offset);
-	cout << "File to upload: " << file_name << "\n";
-	file_message << "" << op << username << fname << file_SHA1 << file_size_str << offset_str << CHUNK_SIZE;
 
-	data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
-	size = fread(data, 1, CHUNK_SIZE, f);
-	file_message.push_back(data, size);
-	free(data);
+	for (int i = 0; i < locations.size(); ++i)
+	{
+		cout << "Connected to: " << locations[i] << endl;
+		upload_socket.connect(locations[i]); //connect to server
 
-	upload_socket.send(file_message);
+		file_size_str = to_string(CHUNK_SIZE);
+		
+		offset_str =  to_string((int)offset);
+		cout << "File to upload: " << file_name;
+		cout << "\tPart to upload: " << i << "\n";
+
+		data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
+		size = fread(data, 1, CHUNK_SIZE, f);
+		string file_SHA1_str(file_SHA1);
+		file_message << "" << op << username << fname << file_SHA1_str+"."+to_string(i) << to_string(size) << offset_str << CHUNK_SIZE;
+		file_message.push_back(data, size);
+		free(data);
+
+		upload_socket.send(file_message);
+		cout << "here" <<endl;
+
+		// offset += CHUNK_SIZE;
+	}
+
+	// upload_socket.connect(locations[0]); //connect to server
+	// offset = 0;
+	// offset_str = to_string((int)offset);
+	// cout << "File to upload: " << file_name << "\n";
+	// file_message << "" << op << username << fname << file_SHA1 << file_size_str << offset_str << CHUNK_SIZE;
+
+	// data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
+	// size = fread(data, 1, CHUNK_SIZE, f);
+	// file_message.push_back(data, size);
+	// free(data);
+
+	// upload_socket.send(file_message);
 }
 
 void listFiles(socket &s, string op, string username) {
@@ -381,7 +427,9 @@ void messageHandler(message &server_response, socket &s, string username) {
 		char file_name[100];
 		server_response >> path;
 		getFileName(path, file_name);
-		cout << "\"" << file_name << "\" successfully uploaded!!" << endl;
+		cout << path << endl;
+		string name(file_name);
+		cout << "\"" << path.substr(0,40) << "\" successfully uploaded!!" << endl;
 		server_response >> server_address;
 		disconnectFromServer(s, server_address);
 	} else if(op == "DeleteDone") {

@@ -213,19 +213,42 @@ void updateInfo(message& request, message& response, socket& s, json& users, jso
 	}
 }
 
-void defineSizeParts(size_t size, size_t& sizeParts, int servers) {
+void defineLocations(size_t size, size_t& sizeParts, int servers, json& locations, MinHeap<Server> &servers_queue) {
+	Server tmp;
+	string location;
+
 	// Check if there is a default size for Parts
-	if (sizeParts)
-		return;
-	else
+	if (!sizeParts)
 		sizeParts = ceil(size/servers);
+	
+	size_t remainingFile = size;
+	int nPart = 0;
+
+	while (remainingFile > sizeParts) {
+		tmp = servers_queue.pop();
+		location = tmp.address;
+		tmp.bytes_transmitting += sizeParts;
+		tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
+		servers_queue.insert(tmp);
+		locations[nPart] = location;
+		remainingFile -= sizeParts;
+		nPart ++;
+	}
+
+	tmp = servers_queue.pop();
+	location = tmp.address;
+	tmp.bytes_transmitting += remainingFile;
+	tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
+	servers_queue.insert(tmp);
+	locations[nPart] = location;
+		
 }
 
 void uploadFile(message& request, message& response, socket& s, json& users, json& files, MinHeap<Server> &servers_queue) {
-	string fname, username, SHA1, location, size_str;
+	string fname, username, SHA1, /*location,*/ size_str;
 	size_t size;
 	int owners = 1; // Increment file owners in one
-	Server tmp;
+	// Server tmp;
 	json locations;
 
 	request >> username;
@@ -240,7 +263,7 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 		// Update Info 
 		//Check if file wasn't uploaded before by the user
 		if(!users[username]["files"].count(fname)) {
-			users[username]["files"][fname] = SHA1;
+			users[username]["files"][fname] = SHA1.substr(0,40);
 			owners = files[SHA1]["owners"];
 			owners += 1;
 			files[SHA1]["owners"] = owners;
@@ -271,42 +294,16 @@ void uploadFile(message& request, message& response, socket& s, json& users, jso
 	// Define the size of the parts to store
 	size_t sizeParts = CHUNK_SIZE;
 
-	defineSizeParts(size,sizeParts,servers_queue.getSize());
+	defineLocations(size,sizeParts,servers_queue.getSize(), locations, servers_queue);
 
-	size_t remainingFile = size;
-	int nPart = 0;
-
-	while (remainingFile > sizeParts) {
-		tmp = servers_queue.pop();
-		location = tmp.address;
-		tmp.bytes_transmitting += sizeParts;
-		tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
-		servers_queue.insert(tmp);
-		files[SHA1]["parts"][nPart] = location;
-		remainingFile -= sizeParts;
-		nPart ++;
-	}
-
-	tmp = servers_queue.pop();
-	location = tmp.address;
-	tmp.bytes_transmitting += remainingFile; 
-	tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
-	servers_queue.insert(tmp);
-	files[SHA1]["parts"][nPart] = location;
-
-	// tmp = servers_queue.pop();
-	// location = tmp.address;
-	// tmp.bytes_transmitting += size; 
-	// tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
-	// servers_queue.insert(tmp);
 	cout << "File to be uploaded: " << SHA1 << " of size (bytes): " << size << endl;
 	files[SHA1]["owners"] = owners;
-	files[SHA1]["parts"][0] = location;
+	files[SHA1]["parts"] = locations;
 	files[SHA1]["size"] = size_str;
 	saveUsersFilesInfo(users, files);
 
 	// Send Server info to client, and update priority queue
-	response << location;
+	response.push_back(locations.dump());
 	s.send(response);
 	return;
 }
@@ -322,23 +319,36 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 		SHA1 = users[username]["files"][fname];
 
 		//Search location of file to download
-		if (files[SHA1]["location"].is_string()) {
+		if (files[SHA1]["location"].is_array()) {
+			json locations = files[SHA1]["parts"];
+
 			location = files[SHA1]["location"];
 			fsize_str = files[SHA1]["size"];	// .get<long long int>();
 			fsize = atol(fsize_str.c_str());
 
 			// Send Server info to client, and update priority queue
-			int query = servers_queue.search(location);
-			if(query < 0) {
-				cout << "Server not connected!!" << endl;
-				response << "Error" << "Server not connected!!";
-			} else {
-				tmp = servers_queue.deleteAt(query);
-				tmp.bytes_transmitting += fsize;
-				tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
-				servers_queue.insert(tmp);
-				response << location << fsize_str << SHA1;			
+
+			// for (json::iterator it = locations.begin(); it != locations.end(); it++){
+			bool status = true;
+			int count = locations.size();
+			for (int i = 0; i < count; ++i)
+			{
+				int query = servers_queue.search(locations[i]);
+				if(query < 0) {
+					cout << "Server not connected!!" << endl;
+					status = false;
+					break;
+				} else {
+					tmp = servers_queue.deleteAt(query);
+					tmp.bytes_transmitting += fsize;
+					tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
+					servers_queue.insert(tmp);		
+				}
 			}
+			if status 
+				response << locations.dump() << fsize_str << SHA1;	
+			else
+				response << "Error" << "Servers aren't connected!!";
 		}
 	}
 	else {
