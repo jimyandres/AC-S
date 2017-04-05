@@ -19,6 +19,10 @@ void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH
         sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
 }
 
+string interval() {
+	return "(" + lowerBound + "," + upperBound + "]";
+}
+
 void getID(string Value, char ans[SHA_DIGEST_LENGTH*2+1]) {
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 	
@@ -103,16 +107,17 @@ void deleteSockets() {
 
 int main(int argc, char** argv) {
 	srand(time(NULL));
-	if(argc != 4) {
+	if(argc != 5) {
 		cout << "Enter myAddress successorAddress clientsAddress" << endl;
 		return EXIT_FAILURE;
 	}
 	char myID[SHA_DIGEST_LENGTH*2+1];
 	string myAddress, successorAddress, clientsAddress, op;
 
-	myAddress = argv[1];
-	successorAddress = argv[2];
-	clientsAddress = argv[3];
+	int bootstrap = atoi(argv[1]);
+	myAddress = argv[2];
+	successorAddress = argv[3];
+	clientsAddress = argv[4];
 
 	cout << "Listening on " << myAddress << " and connectig to neighbor on " << successorAddress << endl;
 
@@ -125,19 +130,28 @@ int main(int argc, char** argv) {
     getID(to_string(rand()%100), myID);
     upperBound = string(myID);
 
-    message id_msg, id_msg_res;
-    id_msg << "send_id" << myID;
-    mySuccessor.send(id_msg);
+    if(bootstrap) {
+    	message id_msg, id_msg_res;
+	    id_msg << "send_id" << myID;
+	    mySuccessor.send(id_msg);
 
-    mySocket.receive(id_msg_res);
-    id_msg_res >> op;
-	if(op == "send_id") {
-		id_msg_res >> lowerBound;
-	} else {
-		cout << "Unknown option: " << op << endl;
-		return EXIT_FAILURE;
-	}
-	cout << "Responsible for keys in (" << lowerBound << "," << upperBound << "]" << endl;
+	    mySocket.receive(id_msg_res);
+	    id_msg_res >> op;
+		if(op == "send_id") {
+			id_msg_res >> lowerBound;
+		} else {
+			cout << "Unknown option: " << op << endl;
+			return EXIT_FAILURE;
+		}
+		cout << "Responsible for keys in " << interval() << endl;
+    } else {
+    	cout << "Connect to existing chord, not implemented yet!" << endl;
+    	/*****************************************************************
+		send my id
+		send my address
+		
+    	******************************************************************/
+    }
 
 	socket clientsSocket(ctx, socket_type::pull);
 	clientsSocket.bind("tcp://*:" + string(clientsAddress));
