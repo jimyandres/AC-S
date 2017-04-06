@@ -187,10 +187,8 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 
 	if (size == 0 || (int)size < size_chunk) {
 		cout << endl;
-		cout << "Bytes received: " << size << endl;
+		cout << "Bytes received \n" ;//<< size << endl;
 
-		server_address = answer.get(8);
-		disconnectFromServer(download_socket, server_address);
 	}
 }
 
@@ -228,6 +226,9 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	
 	int count = locations.size();
 	int num=0;
+	int servers[100];
+	fill_n(servers, 100, -1);
+	int pos_servers = 1;
 	for (int i = 0; i < count; ++i) {
 		cout << "Connected to: " << locations[i] << endl;
 		download_socket.connect(locations[i]); //connect to server
@@ -252,7 +253,38 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 			break;
 		}
 		num++;
+
+		// store location
+		for (int j = 0; j < pos_servers; ++j)
+		{
+			if(servers[j] == -1){
+				servers[j] = i;
+				cout << "stored " << i << " -------------------" << locations[i] << endl;
+				pos_servers++;
+				break;
+			} else if (locations[servers[j]] == locations[i]){
+				break;
+			} 
+		}
+		if (i+1 == count) {
+			for (int k = 0; k < pos_servers; ++k)
+			{
+				if(servers[k] == -1)
+					break;
+				string server_address = locations[servers[k]];
+				download_socket.connect(server_address); //connect to server
+				disconnectFromServer(download_socket, server_address);
+			}
+		}
+		
 	}
+
+	
+
+	
+
+		
+
 }
 
 void uploadFile(socket &broker_socket, socket &upload_socket, string op, string username) {
