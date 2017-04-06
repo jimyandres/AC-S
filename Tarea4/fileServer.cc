@@ -163,7 +163,7 @@ void deleteFile(message &m, message &response, socket &s, string client_id, stri
 void uploadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker, int delay) {
 	string fname, path, username, fname_client, ans, file_size_str, total_str;
 	size_t size;
-	char * data;
+	char * data, broker_fname[100];
 	FILE * f;
 	int chunk_size;
 	long file_size;
@@ -191,9 +191,10 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 
 	cout << endl << " file size" << file_size << endl;
 
-	server_response << "UpDone" << path.substr(0,40);
+	//server_response << "UpDone" << path.substr(0,40);
 	updateDiskUsage(file_size);
-	request_broker << "UpdateInfo" << "Upload" << 1 << username << fname_client << fname << file_size_str << download_address;
+	getFileName(fname_client, broker_fname);
+	request_broker << "UpdateInfo" << "Upload" << 1 << username << broker_fname << fname << file_size_str << download_address;
 
 	broker.send(request_broker); 
 	broker.receive(response_broker);
@@ -204,8 +205,8 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 		cout << "Updated on broker" << endl;
 	}
 	
-	server_response << download_address;
-	s.send(server_response);
+	//server_response << download_address;
+	//s.send(server_response);
 	return;
 
 }
@@ -239,9 +240,6 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	server_response << client_id << "" << op << client_fname << fname;
 	fflush(f);
 
-
-	cout <<"File size in bytes: " << sz_str << endl;
-
 	fseek(f, 0, SEEK_SET);
 
 	data = (char *) malloc (CHUNK_SIZE);
@@ -249,17 +247,20 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 
 	size = fread (data, 1, CHUNK_SIZE, f);
 
+	cout <<"File size in bytes: " << size << endl;
+
 	server_response << nPart;
 	server_response << to_string(size);
 
 	server_response << CHUNK_SIZE;
 	server_response.push_back(data, size);
-	server_response << download_address;
+	server_response.push_back(download_address);
 
 	fclose(f);
 	free(data);
+	sz_str = to_string(size);
 		
-	request_broker << "UpdateInfo" << "Download" << fname << to_string(size) << download_address;
+	request_broker << "UpdateInfo" << "Download" << fname << sz_str << download_address;
 
 	// Simulate Delay
 	sleep(delay);

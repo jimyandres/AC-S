@@ -234,7 +234,7 @@ void defineLocations(size_t size, size_t& sizeParts, int servers, json& location
 		servers_queue.insert(tmp);
 		locations[nPart] = location;
 		remainingFile -= sizeParts;
-		nPart ++;
+		nPart++;
 	}
 
 	tmp = servers_queue.pop();
@@ -334,7 +334,7 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 			// for (json::iterator it = locations.begin(); it != locations.end(); it++){
 			bool status = true;
 			int count = locations.size();
-			for (int i = 0; i < count; ++i)
+			for (int i = 0; i < count; i++)
 			{
 				location = locations[i];
 				int query = servers_queue.search(location);
@@ -344,9 +344,13 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 					break;
 				} else {
 					tmp = servers_queue.deleteAt(query);
-					tmp.bytes_transmitting += fsize;
+					if(i == count-1)
+						tmp.bytes_transmitting += fsize%CHUNK_SIZE;
+					else
+						tmp.bytes_transmitting += CHUNK_SIZE;
 					tmp.key = ((double)tmp.bytes_transmitting*BYTES_FACTO)+((double)tmp.space_used*SPACE_FACTO);
-					servers_queue.insert(tmp);		
+					servers_queue.insert(tmp);
+					//HeapSort(servers_queue);		
 				}
 			}
 			if (status) 

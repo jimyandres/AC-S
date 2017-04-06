@@ -185,11 +185,11 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	fwrite(data, 1, size, f);
 	fclose(f);
 
-	if (size == 0 || (int)size < size_chunk) {
+	/*if (size == 0 || (int)size < size_chunk) {
 		cout << endl;
 		cout << "Bytes received \n" ;//<< size << endl;
 
-	}
+	}*/
 }
 
 void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
@@ -234,7 +234,7 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 		download_socket.connect(locations[i]); //connect to server
 		cout << "Saving part " << i << "..." << endl;
 		string part = to_string((int)num);
-		metadata_file << "" << op << fname << server_fname << part << file_size_str ;
+		metadata_file << "" << op << fname << server_fname << part << "0" ;
 		download_socket.send(metadata_file);
 
 		download_socket.receive(server_response);
@@ -249,12 +249,13 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 			// cout << type;
 			break;
 		} else {
-			cout << "Error downloading file";
+			cout << "Error downloading file " << op << endl;
 			break;
 		}
 		num++;
 
-		// store location
+		disconnectFromServer(download_socket, locations[i]);
+		/*// store location
 		for (int j = 0; j < pos_servers; ++j)
 		{
 			if(servers[j] == -1){
@@ -275,7 +276,7 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 				download_socket.connect(server_address); //connect to server
 				disconnectFromServer(download_socket, server_address);
 			}
-		}
+		}*/
 		
 	}
 
@@ -361,6 +362,7 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		free(data);
 
 		upload_socket.send(file_message);
+		disconnectFromServer(upload_socket, locations[i]);
 	}
 }
 
@@ -416,6 +418,7 @@ void deleteFile(socket &s, string op, string username, socket &server) {
 			server_req << to_string(CHUNK_SIZE);
 		server.send(server_req);
 		total_size -= CHUNK_SIZE;
+		disconnectFromServer(server, locations[i]);
 	}
 }
 
@@ -446,7 +449,7 @@ void messageHandler(message &server_response, socket &s, string username) {
 		server_response >> msg;
 		cout << "Status: " << msg << endl;
 		server_response >> server_address;
-		disconnectFromServer(s, server_address);
+		//disconnectFromServer(s, server_address);
 	} else {
 		cout << "Message unknown: " << op << endl;
 	}
