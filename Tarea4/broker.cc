@@ -83,9 +83,10 @@ void listFiles(message& m, message& response, socket& s, json& users) {
 }
 
 void deleteFile(message& m, message& response, socket& s, json& users, json& files) {
-	string username, filename, SHA1, serverLocation, fileSize;
+	string username, filename, SHA1, serversLocation, fileSize;
 	//size_t fileSize;
 	message request_delete, response_delete;
+	json locations;
 
 	m >> username;
 	m >> filename;
@@ -93,7 +94,8 @@ void deleteFile(message& m, message& response, socket& s, json& users, json& fil
 	// Obtain location of file to delete
 	if(users[username].count("files") && users[username]["files"].count(filename)) {
 		SHA1 = users[username]["files"][filename];
-		serverLocation = files[SHA1]["location"];
+		locations = files[SHA1]["parts"];
+		// serversLocation = files[SHA1]["location"];
 		fileSize = files[SHA1]["size"];
 		// Update Info
 
@@ -106,9 +108,9 @@ void deleteFile(message& m, message& response, socket& s, json& users, json& fil
 		int owners = files[SHA1]["owners"];
 		owners -= 1;
 		files[SHA1]["owners"] = owners;
-		// Send Message Delete file to serverLocation, if there are no more owners of the file
+		// Send Message Delete file to serversLocation, if there are no more owners of the file
 		if (!owners)  {
-			response << SHA1 << fileSize << serverLocation;
+			response << SHA1 << fileSize << locations.dump();
 			files.erase(files.find(SHA1));
 		} else {
 			response << "Done" << "File successfully deleted";
@@ -374,7 +376,6 @@ void createUser(message& m, message& response, socket& s, json& users) {
 	}
 	else {
 		users[username]["password"] = password;
-		//users[username]["files"] = {};
 		ofstream usr("users.json");
 		cout << "\nNew user created: " << username << endl;
 		usr << setw(4) << users << endl;
@@ -408,7 +409,6 @@ void verifyUser(message& m, message& response, socket& s, json& users) {
 }
 
 void addServer (message& request, message& response, socket& s, MinHeap<Server> &servers_queue) {
-	//string serverLocation, diskSpace;
 	Server tmp;
 	string space_used_str, bytes_transmitting_str;
 

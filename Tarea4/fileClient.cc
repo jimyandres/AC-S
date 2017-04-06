@@ -31,13 +31,6 @@ void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH
         sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
 }
 
-// string appendExtension(char file_name[SHA_DIGEST_LENGTH*2+1], char extension[5]) {
-// 	string ans;
-// 	ans.insert(0, file_name, SHA_DIGEST_LENGTH*2);
-// 	ans.append(extension);
-// 	return ans;
-// }
-
 void printMenu() {
 	cout << "\n\n***********************************\n";
 	cout << "Enter action to perform: \n\tList_files\n\tDownload\n\tUpload\n\tDelete\n\tExit\n";
@@ -154,11 +147,10 @@ void ReadFile(message &answer, socket &upload_socket, string username) {
 void SaveFile(message &answer, socket &download_socket, string username) {
 	message req_check_sum, metadata_file;
 	string path, fname, server_address, server_fname, file_size_str, offset_str, nPart;
-	size_t size, offset;
+	size_t size;
 	int size_chunk;
 	char *data;
 	FILE* f;
-	long file_size;
 
 	answer >> fname;
 	struct passwd *pw = getpwuid(getuid());
@@ -175,21 +167,12 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	path.append(fname);
 
 	answer >> server_fname;
-	// answer >> offset_str;
-	// offset = atol(offset_str.c_str());
 	answer >> nPart;
 	answer >> file_size_str;
-	file_size = atol(file_size_str.c_str());
 
 	if (nPart == "0") {
 		f = fopen(path.c_str(), "wb");
 	} 
-	// else if((int)offset == file_size) {
-	// 	CheckFile(answer, path);
-	// 	server_address = answer.get(7);
-	// 	disconnectFromServer(download_socket, server_address);
-	// 	return;
-	// } 
 	else {
 		f = fopen(path.c_str(), "ab");
 		fseek(f, 0L, SEEK_END);
@@ -200,26 +183,15 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 	data = (char*) answer.raw_data(7);
 
 	fwrite(data, 1, size, f);
-	// offset += size;
 	fclose(f);
-	// offset_str = to_string(offset);
-
-	/*progress = ((double)offset/(double)file_size);
-	if((progress*100.0) <= 100.0){
-		printf("\r[%3.2f%%]",progress*100.0);
-	}
-	fflush(stdout);*/
 
 	if (size == 0 || (int)size < size_chunk) {
 		cout << endl;
-		cout << "Bytes received: " << offset << endl;
-		// req_check_sum << "" << "Download" << username << fname << server_fname << offset_str << file_size_str;
-		// download_socket.send(req_check_sum);
-	} 
-	// else {
-	// 	metadata_file << "" << "Download" << username << fname << server_fname << offset_str << file_size_str;
-	// 	download_socket.send(metadata_file);
-	// }
+		cout << "Bytes received: " << size << endl;
+
+		server_address = answer.get(8);
+		disconnectFromServer(download_socket, server_address);
+	}
 }
 
 void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
@@ -273,7 +245,7 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 			string type;
 			server_response >> type;
 			cout << "Error downloading file" << endl;
-			cout << type;
+			// cout << type;
 			break;
 		} else {
 			cout << "Error downloading file";
@@ -281,23 +253,15 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 		}
 		num++;
 	}
-
-	// cout << "Connected to: " << servers_address << endl;
-	// download_socket.connect(server_address); //connect to server
-
-	// cout << "Saving..." << endl;
-	// metadata_file << "" << op << username << fname << server_fname << offset_str << file_size_str;
-	// download_socket.send(metadata_file);
 }
 
 void uploadFile(socket &broker_socket, socket &upload_socket, string op, string username) {
 	FILE* f;
 	char *data;
-	size_t size, offset;
+	size_t size;
 	char file_name[100], file_SHA1[SHA_DIGEST_LENGTH*2+1];
 	message file_message, server_answer, check_sum_msg, request_broker, response_broker;
 	string empty, servers_address, fname, server_fname, file_size_str, offset_str;
-	//char extension[] = ".dat";
 
 	json locations;
 
@@ -347,8 +311,6 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		locations = json::parse(servers_address);
 	}
 
-	// offset = 0;
-
 	for (int i = 0; i < (int)locations.size(); ++i)
 	{
 		cout << "Connected to: " << locations[i] << endl;
@@ -356,7 +318,6 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 
 		file_size_str = to_string(CHUNK_SIZE);
 		
-		// offset_str =  to_string((int)offset);
 		cout << "File to upload: " << file_name;
 		cout << "\tPart to upload: " << i << "\n";
 
@@ -368,22 +329,7 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		free(data);
 
 		upload_socket.send(file_message);
-
-		// offset += CHUNK_SIZE;
 	}
-
-	// upload_socket.connect(locations[0]); //connect to server
-	// offset = 0;
-	// offset_str = to_string((int)offset);
-	// cout << "File to upload: " << file_name << "\n";
-	// file_message << "" << op << username << fname << file_SHA1 << file_size_str << offset_str << CHUNK_SIZE;
-
-	// data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
-	// size = fread(data, 1, CHUNK_SIZE, f);
-	// file_message.push_back(data, size);
-	// free(data);
-
-	// upload_socket.send(file_message);
 }
 
 void listFiles(socket &s, string op, string username) {
@@ -400,7 +346,7 @@ void listFiles(socket &s, string op, string username) {
 
 void deleteFile(socket &s, string op, string username, socket &server) {
 	message request, response, server_req;
-	string status, filename, server_address, server_fname, file_size, ans;
+	string status, filename, servers_address, server_fname, file_size, ans;
 
 	cout << "Enter File name: \n";
 	getline(cin, filename);
@@ -421,11 +367,24 @@ void deleteFile(socket &s, string op, string username, socket &server) {
 		cout << "Error: " << ans << endl;
 		return;
 	}
-	response >> server_fname >> file_size >> server_address;
-	cout << "Connected to: " << server_address << endl;
-	server.connect(server_address);
-	server_req << "" << "Delete" << server_fname << file_size;
-	server.send(server_req);
+	response >> server_fname >> file_size >> servers_address;
+	json locations = json::parse(servers_address);
+
+	int total_size = atol(file_size.c_str());
+
+	int count = locations.size();
+	for (int i = 0; i < count; ++i)
+	{
+		cout << "Connected to: " << locations[i] << endl;
+		server.connect(locations[i]);
+		server_req << "" << "Delete" << server_fname+"."+to_string(i);
+		if (total_size < CHUNK_SIZE)
+			server_req << to_string(total_size);
+		else
+			server_req << to_string(CHUNK_SIZE);
+		server.send(server_req);
+		total_size -= CHUNK_SIZE;
+	}
 }
 
 void messageHandler(message &server_response, socket &s, string username) {
