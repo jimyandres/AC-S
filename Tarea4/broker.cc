@@ -324,7 +324,7 @@ void downloadFile(message& request, message& response, socket& s, json& users, j
 			json locations = files[SHA1]["parts"];
 
 			// location = files[SHA1]["location"];
-			fsize_str = files[SHA1]["size"];	// .get<long long int>();
+			fsize_str = files[SHA1]["size"];
 			fsize = atol(fsize_str.c_str());
 
 			// Send Server info to client, and update priority queue

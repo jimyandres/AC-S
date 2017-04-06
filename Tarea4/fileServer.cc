@@ -71,15 +71,15 @@ void getCheckSum(string path, unsigned char *check_sum) {
 }
 
 bool CheckFile(message &client_request, string path, message &server_response, char fname[100]) {
-	message check_sum_msg;
-	unsigned char check_sum[SHA_DIGEST_LENGTH];
-	unsigned char *received_check_sum = NULL;
+	// message check_sum_msg;
+	// unsigned char check_sum[SHA_DIGEST_LENGTH];
+	// unsigned char *received_check_sum = NULL;
 
-	received_check_sum = (unsigned char *)client_request.raw_data(8);
-	// cout << "Received Check sum: ";
-	// printChecksum(received_check_sum);
+	// received_check_sum = (unsigned char *)client_request.raw_data(6);
+	// // cout << "Received Check sum: ";
+	// // printChecksum(received_check_sum);
 
-	getCheckSum(path, (unsigned char *)&check_sum);
+	// getCheckSum(path, (unsigned char *)&check_sum);
 	// cout << "Calculated check sum: ";
 	// printChecksum(check_sum);
 
@@ -181,63 +181,64 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 	cout << "Path: " << path << endl;
 	client_request >> file_size_str;
 	file_size = atol(file_size_str.c_str());
-	client_request >> total_str;
-	total = atol(total_str.c_str());
+	// client_request >> total_str;
+	// total = atol(total_str.c_str());
 
-	if (total == 0){
+	// if (total == 0){
 		f = fopen(path.c_str(), "wb");
-	}
-	else if((int)total == file_size) {
-		getFileName(fname_client, broker_fname);
-		getCheckSum(path, (unsigned char *)&check_sum);
-		ChecksumToString((unsigned char *)&check_sum, file_SHA1);
-		if(CheckFile(client_request, path, server_response, broker_fname)) {
-			updateDiskUsage(file_size);
-			request_broker << "UpdateInfo" << "Upload" << 1 << username << broker_fname << file_SHA1 << file_size_str << download_address;
-		} else {
-			request_broker << "UpdateInfo" << "Upload" << 1 << username << broker_fname << file_SHA1 << file_size_str << download_address;
-		}
+	// }
+	// else if((int)total == file_size) {
+	// 	getFileName(fname_client, broker_fname);
+	// 	getCheckSum(path, (unsigned char *)&check_sum);
+	// 	ChecksumToString((unsigned char *)&check_sum, file_SHA1);
+	// 	if(CheckFile(client_request, path, server_response, broker_fname)) {
+	// 		updateDiskUsage(file_size);
+	// 		request_broker << "UpdateInfo" << "Upload" << 1 << username << broker_fname << file_SHA1 << file_size_str << download_address;
+	// 	} else {
+	// 		request_broker << "UpdateInfo" << "Upload" << 1 << username << broker_fname << file_SHA1 << file_size_str << download_address;
+	// 	}
 
-		// Simulate Delay
-		sleep(delay);
+	// 	// Simulate Delay
+	// 	sleep(delay);
 
-		broker.send(request_broker); 
-		broker.receive(response_broker);
-		if(response_broker.get(0) == "Error") {
-			ans = response_broker.get(1);
-			cout << ans << endl;
-		} else if(response_broker.get(0) == "Updated") {
-			cout << "Updated on broker" << endl;
-		}
+	// 	broker.send(request_broker); 
+	// 	broker.receive(response_broker);
+	// 	if(response_broker.get(0) == "Error") {
+	// 		ans = response_broker.get(1);
+	// 		cout << ans << endl;
+	// 	} else if(response_broker.get(0) == "Updated") {
+	// 		cout << "Updated on broker" << endl;
+	// 	}
 		
-		server_response << download_address;
-		s.send(server_response);
-		return;
-	} else {
-		f = fopen(path.c_str(), "ab");
-		fseek(f, 0L, SEEK_END);
-	}
+	// 	server_response << download_address;
+	// 	s.send(server_response);
+	// 	return;
+	// } else {
+	// 	f = fopen(path.c_str(), "ab");
+	// 	fseek(f, 0L, SEEK_END);
+	// }
 	client_request >> chunk_size;
 
-	size = client_request.size(9);
+	size = client_request.size(8);
 
-	data = (char*)client_request.raw_data(9);
+	data = (char*)client_request.raw_data(8);
 	fwrite(data, 1, size, f);
 	fclose(f);
-	total += size;
-	total_str = to_string(total);
+	// total += size;
+	// total_str = to_string(total);
 
-	cout << endl << "total" <<total << " file size" << file_size << endl;
+	cout << endl << /*"total" <<total << */" file size" << file_size << endl;
 
 
-	if((int)total == file_size) {
+	// if((int)total == file_size) {
 		// getFileName(fname_client, broker_fname);
 		// getCheckSum(path, (unsigned char *)&check_sum);
 		// ChecksumToString((unsigned char *)&check_sum, file_SHA1);
-		 if(CheckFile(client_request, path, server_response, broker_fname)) {
+		 // if(CheckFile(client_request, path, server_response, broker_fname)) {
+			server_response << "UpDone" << path.substr(0,40);
 			updateDiskUsage(file_size);
 			request_broker << "UpdateInfo" << "Upload" << 1 << username << fname_client << fname << file_size_str << download_address;
-		} 
+		// } 
 		 	// else {
 		// request_broker << "UpdateInfo" << "Upload" << 1 << username << broker_fname << file_SHA1 << file_size_str << download_address;
 		// }
@@ -257,32 +258,30 @@ void uploadFile(message &client_request, message &server_response, socket &s, st
 		server_response << download_address;
 		s.send(server_response);
 		return;
-	} 
+	// } 
 
-	server_response << "Upload" << fname_client << fname << total_str << file_size_str;
-	s.send(server_response);
+	// server_response << "Upload" << fname_client << fname << total_str << file_size_str;
+	// s.send(server_response);
 }
 
 void downloadFile(message &client_request, message &server_response, socket &s, string client_id, string download_address, socket &broker, int delay) {
-	string op = "Download", offset_str, sz_str, nPart_str;
+	string op = "Download", /*offset_str,*/ sz_str, nPart;
 	FILE* f;
 	char *data;
 	size_t size, offset;
 	long sz;
-	int nPart;
 	message request_broker, response_broker;
 
 	unsigned char check_sum[SHA_DIGEST_LENGTH];
 
-	string fname, path, username, client_fname, ans;
+	string fname, path, client_fname, ans;
 
-	client_request >> username;
 	client_request >> client_fname;
 	client_request >> fname;
-	client_request >> offset_str;
-	offset = atol(offset_str.c_str());
-	client_request >> nPart_str;
-	nPart = atol(nPart_str.c_str());
+	// client_request >> offset_str;
+	// offset = atol(offset_str.c_str());
+	client_request >> nPart;
+	// nPart = atol(nPart_str.c_str());
 	cout << nPart;
 	client_request >> sz_str;
 	sz = atol(sz_str.c_str());
@@ -291,7 +290,7 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 
 	path = "Uploads/";
 
-	path.append(fname+"."+to_string(nPart-1));
+	path.append(fname+"."+nPart);
 
 	if(!(f = fopen(path.c_str(), "rb"))) {
 		server_response << client_id << "" << "Error" << "The file \"" + fname + "\" requested does not exist or couldn't be read!!" << download_address;
@@ -303,33 +302,31 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	fflush(f);
 
 
-	if(offset == 0) {
+	// if(offset == 0) {
 		cout <<"File size in bytes: " << sz_str << endl;
-	} else if((int)offset == sz) {
-		fclose(f);
-		getCheckSum(path, (unsigned char *)&check_sum);
-		server_response.push_back(check_sum, SHA_DIGEST_LENGTH);
-		server_response.push_back(download_address);
+	// } else if((int)offset == sz) {
+	// 	fclose(f);
+	// 	getCheckSum(path, (unsigned char *)&check_sum);
+	// 	server_response.push_back(check_sum, SHA_DIGEST_LENGTH);
+	// 	server_response.push_back(download_address);
 		
-		request_broker << "UpdateInfo" << "Download" << fname << sz_str << download_address;
+	// 	request_broker << "UpdateInfo" << "Download" << fname << sz_str << download_address;
 
-		// Simulate Delay
-		sleep(delay);
+	// 	// Simulate Delay
+	// 	sleep(delay);
 
-		broker.send(request_broker); 
-		broker.receive(response_broker);
-		if(response_broker.get(0) == "Error") {
-			ans = response_broker.get(1);
-			cout << ans << endl;
-		} else if(response_broker.get(0) == "Updated") {
-			cout << "Updated on broker" << endl;
-		}
+	// 	broker.send(request_broker); 
+	// 	broker.receive(response_broker);
+	// 	if(response_broker.get(0) == "Error") {
+	// 		ans = response_broker.get(1);
+	// 		cout << ans << endl;
+	// 	} else if(response_broker.get(0) == "Updated") {
+	// 		cout << "Updated on broker" << endl;
+	// 	}
 
-		s.send(server_response);
-		return;
-	}
-
-	cout << "here1" << endl;
+	// 	s.send(server_response);
+	// 	return;
+	// }
 
 	fseek(f, 0, SEEK_SET);
 
@@ -338,7 +335,8 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 
 	size = fread (data, 1, CHUNK_SIZE, f);
 
-	server_response << offset_str;
+	// server_response << offset_str;
+	server_response << nPart;
 	server_response << to_string(size);
 
 	server_response << CHUNK_SIZE;
@@ -348,10 +346,10 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	free(data);
 	// s.send(server_response);
 
-	offset += sz;
-	cout << "here2" << endl;
+	// offset += size;
+	// offset += sz;
 
-	if((int)offset == sz) {
+	// if((int)offset == sz) {
 		// fclose(f);
 		// getCheckSum(path, (unsigned char *)&check_sum);
 		// server_response.push_back(check_sum, SHA_DIGEST_LENGTH);
@@ -362,7 +360,6 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 
 		// Simulate Delay
 		sleep(delay);
-		cout << "here3" << endl;
 
 		broker.send(request_broker); 
 		broker.receive(response_broker);
@@ -372,11 +369,10 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 		} else if(response_broker.get(0) == "Updated") {
 			cout << "Updated on broker" << endl;
 		}
-		cout << "here4" << endl;
 
 		s.send(server_response);
 		return;
-	}
+	// }
 }
 
 void messageHandler(message &client_request, message &server_response, socket &s, string socket_address, socket &broker, int delay) {
