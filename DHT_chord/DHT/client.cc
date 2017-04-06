@@ -66,7 +66,7 @@ int main(int argc, char** argv) {
 				vector<string> inputs;
 				char key[SHA_DIGEST_LENGTH*2+1];
 				getline(cin, val);
-				if(val != ""){
+				if(val != "") {
 					inputs = getOptions(val);
 					if(inputs.front() == "q" || inputs.front() == "quit" || inputs.front() == "Quit" || inputs.front() == "ex" || inputs.front() == "Exit" || inputs.front() == "exit") {
 						break;

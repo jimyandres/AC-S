@@ -68,6 +68,29 @@ void localOP(message &req, string key, string idClient) {
 			response << "Error: " << " Key: " + key + " not found";
 			cout << "Key: " << key << " not found!!" << endl;
 		}
+	} else if(op == "AddNode") {
+		message delegate_req;
+		delegate_req.copy(req);
+		string nodeId, nodeAddress;
+		
+		req >> nodeId >> nodeAddress;
+		if(inRange(nodeId)) {
+			cout << "I have your keys" << endl;
+		} else {
+			cout << "Error: Not in my range, delegating..." << endl;
+			successor.send(delegate_req);
+		}
+
+
+		/*auto it = hashTable.find(key);
+		if(it != hashTable.end()){
+			val = hashTable[key];
+			response << "Ok" << "Key: \"" + key + "\" is associated with the value: \"" + val + "\" at: \"" + upperBound + "\"" ;
+			cout << "The Key: " << key << " is associated with the value: " << val << " at: " << upperBound << endl;
+		} else {
+			response << "Error: " << " Key: " + key + " not found";
+			cout << "Key: " << key << " not found!!" << endl;
+		}*/
 	} else {
 		response << "Error: " << " invalid option: " + op;
 		cout << "Unknown option: " << op << endl;
@@ -80,6 +103,10 @@ void handleClientRequest(message &req, socket &successor) {
 	delegate_req.copy(req);
 	
 	string idClient, addressClient, key;
+
+	if(req.get(0) == "AddNode" || req.get(0) == "DeleteNode") {
+		localOP(req, '', '');
+	}
 	req >> idClient >> addressClient;
 	
 	auto it = clients.find(idClient);
@@ -123,6 +150,7 @@ int main(int argc, char** argv) {
 
 	socket mySocket(ctx, socket_type::pair);
 	mySocket.bind("tcp://*:" + string(myAddress));
+	string address = "tcp://localhost:" + string(myAddress);
 
 	socket mySuccessor(ctx, socket_type::pair);
     mySuccessor.connect("tcp://localhost:" + string(successorAddress));
@@ -149,8 +177,13 @@ int main(int argc, char** argv) {
     	/*****************************************************************
 		send my id
 		send my address
-		
-    	******************************************************************/
+		******************************************************************/
+
+		message id_msg, id_msg_res;
+		id_msg << "AddNode" << myID << address;
+		mySuccessor.send(id_msg);
+
+	    mySocket.receive(id_msg_res);
     }
 
 	socket clientsSocket(ctx, socket_type::pull);
