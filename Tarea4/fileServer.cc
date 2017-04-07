@@ -223,7 +223,7 @@ void downloadFile(message &client_request, message &server_response, socket &s, 
 	client_request >> client_fname;
 	client_request >> fname;
 	client_request >> nPart;
-	cout << nPart;
+	//cout << nPart;
 	client_request >> sz_str;
 
 

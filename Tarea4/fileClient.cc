@@ -231,9 +231,6 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	
 	int count = locations.size();
 	int num=0;
-	int servers[100];
-	fill_n(servers, 100, -1);
-	int pos_servers = 1;
 	for (int i = 0; i < count; ++i) {
 		//cout << "Connected to: " << locations[i] << endl;
 		download_socket.connect(locations[i]); //connect to server
@@ -318,9 +315,9 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 	} else if(response_broker.get(0) == "Error") {
 		servers_address = response_broker.get(1);
 
-		locations = json::parse(servers_address);
+		//locations = json::parse(servers_address);
 
-		cout << "Error: " <<  locations[0] << endl;
+		cout << "Error: " <<  servers_address << endl;
 		return;
 	} else {
 		response_broker >> servers_address;
@@ -329,12 +326,6 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 
 	for (int i = 0; i < (int)locations.size(); ++i)
 	{
-		progress = ((double)i*CHUNK_SIZE/(double)sz);
-		if((progress*100.0) <= 100.0){
-			printf("\r[%3.2f%%]",progress*100.0);
-		}
-		fflush(stdout);
-
 		//cout << "Connected to: " << locations[i] << endl;
 		upload_socket.connect(locations[i]); //connect to server
 
@@ -350,9 +341,21 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		file_message.push_back(data, size);
 		free(data);
 
+		progress = ((double)i*CHUNK_SIZE/(double)sz);
+		if((progress*100.0) <= 100.0){
+			printf("\r[%3.2f%%]",progress*100.0);
+		}
+		fflush(stdout);
+
 		upload_socket.send(file_message);
 		disconnectFromServer(upload_socket, locations[i]);
 	}
+	progress = ((double)locations.size()*CHUNK_SIZE/(double)sz);
+	if((progress*100.0) <= 100.0){
+		printf("\r[%3.2f%%]",progress*100.0);
+	}
+	fflush(stdout);
+	cout << endl;
 }
 
 void listFiles(socket &s, string op, string username) {
@@ -398,7 +401,7 @@ void deleteFile(socket &s, string op, string username, socket &server) {
 	int count = locations.size();
 	for (int i = 0; i < count; ++i)
 	{
-		cout << "Connected to: " << locations[i] << endl;
+		//cout << "Connected to: " << locations[i] << endl;
 		server.connect(locations[i]);
 		server_req << "" << "Delete" << server_fname+"."+to_string(i);
 		if (total_size < CHUNK_SIZE)
@@ -407,6 +410,13 @@ void deleteFile(socket &s, string op, string username, socket &server) {
 			server_req << to_string(CHUNK_SIZE);
 		server.send(server_req);
 		total_size -= CHUNK_SIZE;
+		server.receive(response);
+		/*response >> status;
+		response >> ans;
+		response >> status;
+		cout << "Status: " << status << endl;
+		response >> status;*/
+
 		disconnectFromServer(server, locations[i]);
 	}
 }
@@ -535,7 +545,7 @@ int main(int argc, char* argv[]) {
 			printMenu();
 			cout <<  "\nEnter action to perform: " << endl;
 			while(true) {
-				if(p.poll(100)) {
+				if(p.poll(10)) {
 					if(p.has_input(s)){
 						s.receive(server_response);
 						messageHandler(server_response, s, username);
@@ -564,16 +574,17 @@ int main(int argc, char* argv[]) {
 										player.play();
 										playing_flag = true;
 									} else {
-										cout << "Theres nothing on the playlist!!" << endl;
+										cout << "There is nothing on the playlist!!" << endl;
 									}
 								} else {
+									delete play_list.front();
 									play_list.pop();
 									if(!play_list.empty()) {
 										player.setBuffer(*(play_list.front()));
 										player.play();
 										playing_flag = true;
 									} else {
-										cout << "Theres nothing more on the playlist!!" << endl;
+										cout << "There is nothing more on the playlist!!" << endl;
 										playing_flag = false;
 									}
 								}
@@ -584,6 +595,7 @@ int main(int argc, char* argv[]) {
 							}
 						} else if(op == "s") {
 							player.stop();
+							delete play_list.front();
 							play_list.pop();
 							playing_flag = false;
 						} else if(op == "Exit" || op == "exit" || op == "ex") {
@@ -594,13 +606,14 @@ int main(int argc, char* argv[]) {
 					}
 				} else if(player.getStatus() == sf::Sound::Stopped) {
 					if(playing_flag) {
+						delete play_list.front();
 						play_list.pop();
 						if(!play_list.empty()) {
 							player.setBuffer(*(play_list.front()));
 							player.play();
 							playing_flag = true;
 						} else {
-							cout << "Theres nothing more on the playlist!!" << endl;
+							cout << "There is nothing more on the playlist!!" << endl;
 							playing_flag = false;
 						}
 					}
