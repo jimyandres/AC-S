@@ -7,7 +7,7 @@ server: ../fileServer.cc
 	$(CC) -o ../fileServer ../fileServer.cc $(LDFLAGS)
 
 client: ../fileClient.cc
-	$(CC) -o ../fileClient ../fileClient.cc $(LDFLAGS)
+	$(CC) -o ../fileClient ../fileClient.cc $(LDFLAGS) -lsfml-audio
 
 broker: ../broker.cc
 	$(CC) -o ../broker ../broker.cc $(LDFLAGS)
