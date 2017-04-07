@@ -6,16 +6,21 @@
 
 #include <openssl/sha.h>
 #include "src/json.hpp"
-
+#include <queue>
+#include <SFML/Audio.hpp>
 #include <unistd.h> 		//Get the user id of the current user
 #include <sys/types.h>
 #include <pwd.h>			//Get the password entry (which includes the home directory) of the user
 
 #define CHUNK_SIZE 5242880
 
+//sf:Sound player
+
 using namespace std;
 using namespace zmqpp;
 using json = nlohmann::json;
+
+queue<sf::SoundBuffer*> play_list;
 
 void printChecksum (unsigned char * check_sum) {
 	char mdString[SHA_DIGEST_LENGTH*2+1];
@@ -38,7 +43,7 @@ void printMenu() {
 }
 
 void disconnectFromServer(socket &s, string address) {
-	cout << "Disconnected from " << address << endl;
+	//cout << "Disconnected from " << address << endl;
 	s.disconnect(address);
 }
 
@@ -230,9 +235,9 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	fill_n(servers, 100, -1);
 	int pos_servers = 1;
 	for (int i = 0; i < count; ++i) {
-		cout << "Connected to: " << locations[i] << endl;
+		//cout << "Connected to: " << locations[i] << endl;
 		download_socket.connect(locations[i]); //connect to server
-		cout << "Saving part " << i << "..." << endl;
+		//cout << "Saving part " << i << "..." << endl;
 		string part = to_string((int)num);
 		metadata_file << "" << op << fname << server_fname << part << "0" ;
 		download_socket.send(metadata_file);
@@ -254,38 +259,15 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 		}
 		num++;
 
-		disconnectFromServer(download_socket, locations[i]);
-		/*// store location
-		for (int j = 0; j < pos_servers; ++j)
-		{
-			if(servers[j] == -1){
-				servers[j] = i;
-				cout << "stored " << i << " -------------------" << locations[i] << endl;
-				pos_servers++;
-				break;
-			} else if (locations[servers[j]] == locations[i]){
-				break;
-			} 
-		}
-		if (i+1 == count) {
-			for (int k = 0; k < pos_servers; ++k)
-			{
-				if(servers[k] == -1)
-					break;
-				string server_address = locations[servers[k]];
-				download_socket.connect(server_address); //connect to server
-				disconnectFromServer(download_socket, server_address);
-			}
-		}*/
-		
+		disconnectFromServer(download_socket, locations[i]);		
 	}
+	struct passwd *pw = getpwuid(getuid());
+	const char *homedir = pw->pw_dir;
+	string path = (string)homedir + "/Descargas/Downloads/" + fname;
 
-	
-
-	
-
-		
-
+	sf::SoundBuffer* song = new sf::SoundBuffer();
+	play_list.push(song);
+	play_list.back()->loadFromFile(path);
 }
 
 void uploadFile(socket &broker_socket, socket &upload_socket, string op, string username) {
@@ -295,6 +277,7 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 	char file_name[100], file_SHA1[SHA_DIGEST_LENGTH*2+1];
 	message file_message, server_answer, check_sum_msg, request_broker, response_broker;
 	string empty, servers_address, fname, server_fname, file_size_str, offset_str;
+	double progress;
 
 	json locations;
 
@@ -346,13 +329,19 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 
 	for (int i = 0; i < (int)locations.size(); ++i)
 	{
-		cout << "Connected to: " << locations[i] << endl;
+		progress = ((double)i*CHUNK_SIZE/(double)sz);
+		if((progress*100.0) <= 100.0){
+			printf("\r[%3.2f%%]",progress*100.0);
+		}
+		fflush(stdout);
+
+		//cout << "Connected to: " << locations[i] << endl;
 		upload_socket.connect(locations[i]); //connect to server
 
 		file_size_str = to_string(CHUNK_SIZE);
 		
-		cout << "File to upload: " << file_name;
-		cout << "\tPart to upload: " << i << "\n";
+		//cout << "File to upload: " << file_name;
+		//cout << "\tPart to upload: " << i << "\n";
 
 		data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
 		size = fread(data, 1, CHUNK_SIZE, f);
@@ -455,13 +444,23 @@ void messageHandler(message &server_response, socket &s, string username) {
 	}
 }
 
+void deletePlayList() {
+	while(!play_list.empty()) {
+		delete play_list.front();
+		play_list.pop();
+	}
+}
+
 int main(int argc, char* argv[]) {
+	bool playing_flag = false;
 	message login, response, create_user, server_response;
 	string op, create, answer;
 	char username[40];
 	string password = "";
 	int access;
 	string broker_address = "tcp://";
+	sf::Sound player;
+	//player.play();
 
 	cout << "This is the client\n";
 
@@ -536,7 +535,7 @@ int main(int argc, char* argv[]) {
 			printMenu();
 			cout <<  "\nEnter action to perform: " << endl;
 			while(true) {
-				if(p.poll()) {
+				if(p.poll(100)) {
 					if(p.has_input(s)){
 						s.receive(server_response);
 						messageHandler(server_response, s, username);
@@ -551,14 +550,58 @@ int main(int argc, char* argv[]) {
 							// cin.ignore(numeric_limits<streamsize>::max(), '\n');
 						} else if(op == "Download" || op == "download" || op == "down") {
 							downloadFile(broker_socket, s, "Download", username);
+							//player.play();
 						} else if(op == "List_files" || op == "list_files" || op == "ls") {
 							listFiles(broker_socket, "List_files", username);
 						} else if(op == "Delete" || op == "delete" || op == "del") {
 							deleteFile(broker_socket, "Delete", username, s);
+						} else if(op == "p") {
+							if(player.getStatus() == sf::Sound::Stopped) {
+								if(!playing_flag) {
+									if(!play_list.empty()) {
+										//play_list.pop();
+										player.setBuffer(*(play_list.front()));
+										player.play();
+										playing_flag = true;
+									} else {
+										cout << "Theres nothing on the playlist!!" << endl;
+									}
+								} else {
+									play_list.pop();
+									if(!play_list.empty()) {
+										player.setBuffer(*(play_list.front()));
+										player.play();
+										playing_flag = true;
+									} else {
+										cout << "Theres nothing more on the playlist!!" << endl;
+										playing_flag = false;
+									}
+								}
+							} else if(player.getStatus() == sf::Sound::Paused) {
+								player.play();
+							} else {
+								player.pause();
+							}
+						} else if(op == "s") {
+							player.stop();
+							play_list.pop();
+							playing_flag = false;
 						} else if(op == "Exit" || op == "exit" || op == "ex") {
 							break;
 						} else {
 							cout << "\nInvalid option, please enter one of the listed options!" << endl;
+						}
+					}
+				} else if(player.getStatus() == sf::Sound::Stopped) {
+					if(playing_flag) {
+						play_list.pop();
+						if(!play_list.empty()) {
+							player.setBuffer(*(play_list.front()));
+							player.play();
+							playing_flag = true;
+						} else {
+							cout << "Theres nothing more on the playlist!!" << endl;
+							playing_flag = false;
 						}
 					}
 				}
@@ -567,6 +610,7 @@ int main(int argc, char* argv[]) {
 			cout << "\nUser not found!!\n\n";
 	}
 	cout << "\nFinished\n";
+	deletePlayList();
 	broker_socket.close();
 	s.close();
 	ctx.terminate();
