@@ -1,5 +1,5 @@
 #!/bin/bash
 
-#make #Optional
+make #Optional
 
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/zmq/lib
