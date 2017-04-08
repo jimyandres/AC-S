@@ -11,17 +11,18 @@
 
 class Player : public sf::SoundStream {
 public:
-	Player(int channelCount, int sampleRate) :
+	Player() ://int channelCount, int sampleRate) :
     m_currentSample		(0),
-    myChannelCount		(channelCount),
-    mySampleRate		(sampleRate)
+    // myChannelCount		(channelCount),
+    // mySampleRate		(sampleRate),
+    m_hasFinished		(false)
 
     {
-    	initialize(myChannelCount, mySampleRate);
-    	//play();
+    	//initialize(myChannelCount, mySampleRate);
+    	//std::cout << myChannelCount << " " << mySampleRate << std::endl;
     }
 
-	void load(const void * data, std::size_t sizeInBytes, int finished) {		//const sf::SoundBuffer& buffer) {
+	void load(const char * data, std::size_t sizeInBytes, int finished, int npart) {		//const sf::SoundBuffer& buffer) {
 		// extract the audio samples from the sound buffer to our own container
 		//m_samples.assign(buffer.getSamples(), buffer.getSamples() + buffer.getSampleCount() + m_samples.size());
 		//m_samples.emplace_back(buffer.getSamples());
@@ -29,12 +30,25 @@ public:
 
 		/*sf::MemoryInputStream tmp;
 		tmp.open(data, sizeInBytes);*/
-		const sf::Int16* samples = reinterpret_cast<const sf::Int16*>(static_cast<const char*>(data));
-		std::size_t sampleCount = sizeInBytes / sizeof(sf::Int16);
+
+		if(npart == 0) {
+			sf::SoundBuffer buffer;
+		    buffer.loadFromMemory(data, sizeInBytes);
+			initialize(buffer.getChannelCount(), buffer.getSampleRate());
+			OnStart();
+		}
+		const sf::Int16* samples = reinterpret_cast<const sf::Int16*>(data);
+		std::size_t sampleCount = (sizeInBytes / sizeof(sf::Int16));
+		/*for(int i=0; i<sizeof(samples); i++)
+			printf("%04x ", samples[i]);
+		std::cout << std::endl;*/
+
+		//std::cout << sampleCount << " " << sizeof(sf::Int16) << std::endl;
 
 		{
 			sf::Lock lock(m_mutex);
 			std::copy(samples, samples + sampleCount, std::back_inserter(m_samples));
+			//m_samples.assign(samples, samples + sampleCount);
 			//std::copy(tmp, tmp.getSize(), std::back_inserter(m_samples));
 			//m_samples.resize(*(samples), *(samples) + sampleCount);
 		}
@@ -54,19 +68,23 @@ public:
 
 private:
 
-	virtual bool onGetData(Chunk& data) {
+	virtual void OnStart() {
+		play();
+	}
+
+	virtual bool onGetData(sf::SoundStream::Chunk& data) {
 		// We have reached the end of the buffer and all audio data have been played: we can stop playback
         if (m_currentSample >= m_samples.size() && m_hasFinished)
             return false;
 
         while ((m_currentSample >= m_samples.size()) && !m_hasFinished)
-			sf::sleep(sf::milliseconds(10));
+			sf::sleep(sf::milliseconds(100));
 
         // Copy samples into a local buffer to avoid synchronization problems
         // (don't forget that we run in two separate threads)
         {
             sf::Lock lock(m_mutex);
-            m_tempBuffer.assign(m_samples.begin() + m_currentSample, m_samples.end());
+            m_tempBuffer.assign(m_samples.begin() + m_currentSample,  m_samples.end());
         }
 
         // Fill audio data to pass to the stream
@@ -106,7 +124,7 @@ private:
 
 	virtual void onSeek(sf::Time timeOffset) {
 		// compute the corresponding sample index according to the sample rate and channel count
-        m_currentSample = timeOffset.asMilliseconds() * getSampleRate() * getChannelCount() / 1000;//static_cast<std::size_t>(timeOffset.asSeconds() * getSampleRate() * getChannelCount());
+        m_currentSample = (timeOffset.asMilliseconds() * getSampleRate() * getChannelCount()) / 1000;//static_cast<std::size_t>(timeOffset.asSeconds() * getSampleRate() * getChannelCount());
 	}
 
 	std::vector<sf::Int16> m_samples;
@@ -124,29 +142,37 @@ int main(int argc, char** argv) {
 	std::string filename = argv[1];
 	FILE* f;
 	size_t sz, offset = 0;
-	sf::SoundBuffer buffer;
-    buffer.loadFromFile(filename);
-	Player player(buffer.getChannelCount(), buffer.getSampleRate());
+	//sf::SoundBuffer buffer;
+    // buffer.loadFromFile(filename);
+	//Player player(buffer.getChannelCount(), buffer.getSampleRate());
+	Player player;
+	int npart = 0;
 	while(true) {
 		f = fopen(filename.c_str(), "rb");
-		fseek(f, offset, SEEK_SET);
+		//fseek(f, offset, SEEK_SET);
 		char *data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
 		//std::cout << data << std::endl;
 		sz = fread(data, 1, CHUNK_SIZE, f);
 		fclose(f);
-		std::cout << sz << std::endl;
+		//std::cout << sz << std::endl;
+		//std::cout << data << std::endl;
+		/*for(int i=0; i<sizeof(data); i++)
+			printf("%04x ", data[i]);
+		std::cout << std::endl;
+		std::cout << sz << " " << sizeof(char) << std::endl;*/
 		if(sz < CHUNK_SIZE) {
-			player.load((void*)data, sz, 1);
+			//std::cout << data << std::endl;
+			player.load(data, sz, 1, npart++);
 			free(data);
 			break;
 		}
-		player.load((void*)data, sz, 0);
+		player.load(data, sz, 0, npart++);
 		free(data);
-		offset += sz;
+		//offset += sz;
 		//mem_data.open((void *)data, sz);
 		//buffer.loadFromMemory((void **)data, sz);
 	}
-	player.play();
+	//player.play();
 	while (player.getStatus() != Player::Stopped)
         sf::sleep(sf::milliseconds(100));
 
