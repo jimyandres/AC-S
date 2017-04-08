@@ -14,22 +14,11 @@
 
 #define CHUNK_SIZE 5242880
 
-//sf:Sound player
-
 using namespace std;
 using namespace zmqpp;
 using json = nlohmann::json;
 
 queue<sf::SoundBuffer*> play_list;
-
-void printChecksum (unsigned char * check_sum) {
-	char mdString[SHA_DIGEST_LENGTH*2+1];
- 
-    for(int i = 0; i < SHA_DIGEST_LENGTH; i++)
-         sprintf(&mdString[i*2], "%02x", (unsigned int)check_sum[i]);
- 
-    printf("%s\n", mdString);
-}
 
 void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH*2+1]) {
     for(int i = 0; i < SHA_DIGEST_LENGTH; i++)
@@ -38,7 +27,7 @@ void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH
 
 void printMenu() {
 	cout << "\n\n***********************************\n";
-	cout << "Enter action to perform: \n\tList_files\n\tDownload\n\tUpload\n\tDelete\n\tExit\n";
+	cout << "Enter action to perform: \n\t(ls) List uploaded files\n\t(add) Add to play list\n\t(up) Upload song\n\t(del) Delete song\n\t(p) Reproduce/Pause play list\n\t(s) Stop play list\n\t(menu) Show menu\n\t(ex) Exit\n";
 	cout << "\n";
 }
 
@@ -85,73 +74,8 @@ void getCheckSum(string path, unsigned char *check_sum) {
 	SHA1_Final(check_sum, &sha_ctx);
 }
 
-void CheckFile(message &server_response, string path) {
-	unsigned char check_sum[SHA_DIGEST_LENGTH];
-	unsigned char *received_check_sum = NULL;
-
-	received_check_sum = (unsigned char *)server_response.raw_data(6);
-	cout << "Received Check sum: ";
-	printChecksum(received_check_sum);
-
-	getCheckSum(path, (unsigned char *)&check_sum);
-
-	cout << "Calculated check sum: ";
-	printChecksum(check_sum);
-
-	if(memcmp(check_sum, received_check_sum, SHA_DIGEST_LENGTH)) {
-		cout << "\nThe Checksum failed, please try again!!" << endl;
-		if( remove(path.c_str()) != 0 )
-			cout << "Error deleting file: " << path << endl;
-		else
-			cout << "File: \"" << path << "\" successfully deleted\n";
-	} else {
-		cout << "File \"" << path << "\" saved successfully!!\n";
-	}
-}
-
-void ReadFile(message &answer, socket &upload_socket, string username) {
-	FILE* f;
-	string path, fname, file_size_str, offset_str;
-	size_t offset, size;
-	long file_size;
-	char *data;
-	unsigned char check_sum[SHA_DIGEST_LENGTH];
-	message file_message;
-
-	answer >> path;
-	answer >> fname;
-	answer >> offset_str;
-	offset = atol(offset_str.c_str());
-	answer >> file_size_str;
-	file_message << "" << "Upload" << username << path << fname << file_size_str << offset_str;
-	file_size = atol(file_size_str.c_str());
-
-	if((int)offset == file_size) {
-		getCheckSum(path, (unsigned char *)&check_sum);
-		file_message.push_back(check_sum, SHA_DIGEST_LENGTH);
-		upload_socket.send(file_message);
-		return;
-	}
-
-	if(!(f = fopen(path.c_str(), "rb"))) {
-		cout << "\nThe file " << path << " requested does not exist or couldn't be read!!" << endl;
-		return;
-	}
-	fflush(f);
-	fseek(f, offset, SEEK_SET);
-	data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
-	size = fread(data, 1, CHUNK_SIZE, f);
-	
-	file_message << CHUNK_SIZE;
-	file_message.push_back(data, size);
-	free(data);
-	fclose(f);
-	upload_socket.send(file_message);
-}
-
-void SaveFile(message &answer, socket &download_socket, string username) {
-	message req_check_sum, metadata_file;
-	string path, fname, server_address, server_fname, file_size_str, offset_str, nPart;
+void SaveFile(message &answer) {
+	string path, fname, server_fname, file_size_str, nPart;
 	size_t size;
 	int size_chunk;
 	char *data;
@@ -189,34 +113,26 @@ void SaveFile(message &answer, socket &download_socket, string username) {
 
 	fwrite(data, 1, size, f);
 	fclose(f);
-
-	/*if (size == 0 || (int)size < size_chunk) {
-		cout << endl;
-		cout << "Bytes received \n" ;//<< size << endl;
-
-	}*/
 }
 
 void downloadFile(socket &broker_socket, socket &download_socket, string op, string username) {
-	string servers_address;
-	string server_fname, fname, file_size_str;
+	string server_fname, fname, file_size_str, servers_address;
 	message request_broker, response_broker, metadata_file, server_response;
 	size_t offset = 0;
 	string offset_str = to_string((int)offset);
+	json locations;
 
-	cout << "Enter file name: \n";
+	cout << "Enter file name: (q to cancel)" << endl;
 	getline(cin, fname);
 
 	if(fname == "cancel" || fname == "q") {
-		cout << "Canceled action!!" << endl;
+		cout << "Action canceled!!" << endl;
 		return;
 	}
 
 	request_broker << "Download" << username << fname;
 	broker_socket.send(request_broker);
 	broker_socket.receive(response_broker);
-
-	json locations;
 
 	if(response_broker.get(0) == "Error") {
 		servers_address = response_broker.get(1);
@@ -230,7 +146,7 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	}
 	
 	int count = locations.size();
-	int num=0;
+	int num = 0;
 	for (int i = 0; i < count; ++i) {
 		//cout << "Connected to: " << locations[i] << endl;
 		download_socket.connect(locations[i]); //connect to server
@@ -243,12 +159,11 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 		server_response >> op; // empty
 		server_response >> op;
 		if (op == "Download")
-			SaveFile(server_response, download_socket, username);
+			SaveFile(server_response);
 		else if (op == "Error") {
 			string type;
 			server_response >> type;
-			cout << "Error downloading file" << endl;
-			// cout << type;
+			cout << "Error downloading file: " << type << endl;
 			break;
 		} else {
 			cout << "Error downloading file " << op << endl;
@@ -265,6 +180,7 @@ void downloadFile(socket &broker_socket, socket &download_socket, string op, str
 	sf::SoundBuffer* song = new sf::SoundBuffer();
 	play_list.push(song);
 	play_list.back()->loadFromFile(path);
+	cout << fname << " added to play list" << endl;
 }
 
 void uploadFile(socket &broker_socket, socket &upload_socket, string op, string username) {
@@ -272,17 +188,16 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 	char *data;
 	size_t size;
 	char file_name[100], file_SHA1[SHA_DIGEST_LENGTH*2+1];
-	message file_message, server_answer, check_sum_msg, request_broker, response_broker;
-	string empty, servers_address, fname, server_fname, file_size_str, offset_str;
+	message file_message, request_broker, response_broker;
+	string servers_address, fname, file_size_str;
 	double progress;
-
 	json locations;
 
-	cout << "Enter file name: " << endl;
+	cout << "Enter file name: (q to cancel)" << endl;
 	getline(cin, fname);
 
 	if(fname == "cancel" || fname == "q") {
-		cout << "Canceled action!!" << endl;
+		cout << "Action canceled!!" << endl;
 		return;
 	}
 
@@ -314,9 +229,6 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		return;
 	} else if(response_broker.get(0) == "Error") {
 		servers_address = response_broker.get(1);
-
-		//locations = json::parse(servers_address);
-
 		cout << "Error: " <<  servers_address << endl;
 		return;
 	} else {
@@ -330,10 +242,8 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		upload_socket.connect(locations[i]); //connect to server
 
 		file_size_str = to_string(CHUNK_SIZE);
-		
 		//cout << "File to upload: " << file_name;
 		//cout << "\tPart to upload: " << i << "\n";
-
 		data = (char*) malloc (sizeof(char)*CHUNK_SIZE);
 		size = fread(data, 1, CHUNK_SIZE, f);
 		string file_SHA1_str(file_SHA1);
@@ -341,7 +251,7 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		file_message.push_back(data, size);
 		free(data);
 
-		progress = ((double)i*CHUNK_SIZE/(double)sz);
+		progress = (double)(i+1)/locations.size();
 		if((progress*100.0) <= 100.0){
 			printf("\r[%3.2f%%]",progress*100.0);
 		}
@@ -350,11 +260,7 @@ void uploadFile(socket &broker_socket, socket &upload_socket, string op, string 
 		upload_socket.send(file_message);
 		disconnectFromServer(upload_socket, locations[i]);
 	}
-	progress = ((double)locations.size()*CHUNK_SIZE/(double)sz);
-	if((progress*100.0) <= 100.0){
-		printf("\r[%3.2f%%]",progress*100.0);
-	}
-	fflush(stdout);
+	fclose(f);
 	cout << endl;
 }
 
@@ -373,8 +279,9 @@ void listFiles(socket &s, string op, string username) {
 void deleteFile(socket &s, string op, string username, socket &server) {
 	message request, response, server_req;
 	string status, filename, servers_address, server_fname, file_size, ans;
+	bool state = false;
 
-	cout << "Enter File name: \n";
+	cout << "Enter file name: (q to cancel)" << endl;
 	getline(cin, filename);
 	if(filename == "cancel" || filename == "q") {
 		cout << "Canceled action!!" << endl;
@@ -411,46 +318,20 @@ void deleteFile(socket &s, string op, string username, socket &server) {
 		server.send(server_req);
 		total_size -= CHUNK_SIZE;
 		server.receive(response);
-		/*response >> status;
-		response >> ans;
+		response >> status; // empty
 		response >> status;
-		cout << "Status: " << status << endl;
-		response >> status;*/
+		if(status == "ok") {
+			state = true;
+		} else if(status == "Error") {
+			state = false;
+			response >> ans;
+			cout << ans << endl;
+		}
 
 		disconnectFromServer(server, locations[i]);
 	}
-}
-
-void messageHandler(message &server_response, socket &s, string username) {
-	string op, empty, address, msg, path, server_address;
-	server_response >> empty >> op;
-	message disconnect;
-
-	if(op == "Upload") {
-		ReadFile(server_response, s, username);
-	} else if(op == "Download") {
-		SaveFile(server_response, s, username);
-	} else if(op == "Error") {
-		server_response >> msg;
-		cout << "Error: " << msg << endl;
-		server_response >> server_address;
-		disconnectFromServer(s, server_address);
-	} else if(op == "UpDone") {
-		char file_name[100];
-		server_response >> path;
-		getFileName(path, file_name);
-		cout << path << endl;
-		string name(file_name);
-		cout << "\"" << path.substr(0,40) << "\" successfully uploaded!!" << endl;
-		server_response >> server_address;
-		disconnectFromServer(s, server_address);
-	} else if(op == "DeleteDone") {
-		server_response >> msg;
-		cout << "Status: " << msg << endl;
-		server_response >> server_address;
-		//disconnectFromServer(s, server_address);
-	} else {
-		cout << "Message unknown: " << op << endl;
+	if(state) {
+		cout << "File: " << filename << " deleted!!" << endl;
 	}
 }
 
@@ -470,7 +351,6 @@ int main(int argc, char* argv[]) {
 	int access;
 	string broker_address = "tcp://";
 	sf::Sound player;
-	//player.play();
 
 	cout << "This is the client\n";
 
@@ -548,7 +428,8 @@ int main(int argc, char* argv[]) {
 				if(p.poll(10)) {
 					if(p.has_input(s)){
 						s.receive(server_response);
-						messageHandler(server_response, s, username);
+						//messageHandler(server_response, s, username);
+						cout << "Message from some server" << endl;
 					}
 					if(p.has_input(broker_socket)) {
 						cout <<"Message" << endl;
@@ -557,19 +438,18 @@ int main(int argc, char* argv[]) {
 						getline(cin, op);
 						if(op == "Upload" || op == "upload" || op == "up") {
 							uploadFile(broker_socket, s, "Upload", username);
-							// cin.ignore(numeric_limits<streamsize>::max(), '\n');
-						} else if(op == "Download" || op == "download" || op == "down") {
+						} else if(op == "Download" || op == "download" || op == "down" || op == "add") {
 							downloadFile(broker_socket, s, "Download", username);
-							//player.play();
 						} else if(op == "List_files" || op == "list_files" || op == "ls") {
 							listFiles(broker_socket, "List_files", username);
 						} else if(op == "Delete" || op == "delete" || op == "del") {
 							deleteFile(broker_socket, "Delete", username, s);
+						} else if(op == "menu") {
+							printMenu();
 						} else if(op == "p") {
 							if(player.getStatus() == sf::Sound::Stopped) {
 								if(!playing_flag) {
 									if(!play_list.empty()) {
-										//play_list.pop();
 										player.setBuffer(*(play_list.front()));
 										player.play();
 										playing_flag = true;
@@ -595,8 +475,10 @@ int main(int argc, char* argv[]) {
 							}
 						} else if(op == "s") {
 							player.stop();
-							delete play_list.front();
-							play_list.pop();
+							if(!play_list.empty()) {
+								delete play_list.front();
+								play_list.pop();
+							}
 							playing_flag = false;
 						} else if(op == "Exit" || op == "exit" || op == "ex") {
 							break;
