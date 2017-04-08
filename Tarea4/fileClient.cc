@@ -319,13 +319,16 @@ void deleteFile(socket &s, string op, string username, socket &server) {
 		total_size -= CHUNK_SIZE;
 		server.receive(response);
 		response >> status; // empty
+		response >> ans;
 		response >> status;
-		if(status == "ok") {
-			state = true;
-		} else if(status == "Error") {
-			state = false;
-			response >> ans;
-			cout << ans << endl;
+		if(ans == "DeleteDone") {
+			if(status == "ok") {
+				state = true;
+			} else if(status == "Error") {
+				state = false;
+				response >> ans;
+				cout << ans << endl;
+			}
 		}
 
 		disconnectFromServer(server, locations[i]);
