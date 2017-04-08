@@ -511,17 +511,11 @@ int main() {
 	// Load files and Users information
 
 	// Users-> This will store users info: name, password and files that own
-	// Files-> This will store files info: SHA1, location (which server),
+	// Files-> This will store files info: SHA1, parts locations (which servers have the parts of the file),
 	// 			quantity of users that own the file.
 
 	json users, files;
 	loadUsersFilesInfo(users, files);
-
-	// ifstream usr("users.json");
-	// usr >> users;
-
-	// ifstream fls("files.json");
-	// fls >> files;
 
 	while(true) {
 		cout << "Waiting for message to arrive!\n";
