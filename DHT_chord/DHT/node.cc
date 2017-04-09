@@ -5,9 +5,11 @@
 #include <zmqpp/zmqpp.hpp>
 #include <openssl/sha.h>
 #include <unordered_map>
+#include "src/json.hpp"
 
 using namespace std;
 using namespace zmqpp;
+using json = nlohmann::json;
 
 static unordered_map<string, socket*> clients;
 static context ctx;
@@ -38,91 +40,113 @@ bool inRange(string key) {
 	}
 }
 
-void localOP(message &req, string key, string idClient) {
-	string op, val;
-	req >> op;
-	message response;
+void localOP(json &req) {
+	string op, key, val;
+	op = req["op"];
+	key = req["key"];
+	json response;
 	if(op == "insert") {
-		req >> val;
+		val = req["val"];
 		hashTable.emplace(key,val);
-		response << "Ok" << "Val: \"" + val + "\" with key: \"" + key + "\" successfully inserted at: \"" + upperBound + "\""; 
+		response = {
+			{"status", "Ok"},
+			{"msg", "Val: '" + val + "' with key: '" + key + "' successfully inserted at: '" + upperBound + "'"}
+		};
 		cout << "Stored Key: " << key << " Val: " << val << " at: " << upperBound << endl;
 	} else if(op == "delete") {
 		auto it = hashTable.find(key);
 		if(it != hashTable.end()){
 			val = hashTable[key];
 			hashTable.erase(key);
-			response << "Ok" << "Val: \"" + val + "\" with key: \"" + key + "\" successfully deleted from: \"" + upperBound + "\"";
+			response = {
+				{"status", "Ok"},
+				{"msg", "Val: '" + val + "' with key: '" + key + "' successfully deleted from: '" + upperBound + "'"}
+			};
 			cout << "Key: " << key << " with Val: " << val << " deleted from: " << upperBound << endl;
 		} else {
-			response << "Error: " << " Key: " + key + " not found";
+			response = {
+				{"status", "Error"},
+				{"msg", "Key: '" + key + "' not found"}
+			};
 			cout << "Key: " << key << " not found!!" << endl;
 		}
 	} else if(op == "search") {
 		auto it = hashTable.find(key);
 		if(it != hashTable.end()){
 			val = hashTable[key];
-			response << "Ok" << "Key: \"" + key + "\" is associated with the value: \"" + val + "\" at: \"" + upperBound + "\"" ;
+			response = {
+				{"status", "Ok"},
+				{"msg", "Key: '" + key + "' is associated with the value: '" + val + "' at: '" + upperBound + "'"}
+			};
 			cout << "The Key: " << key << " is associated with the value: " << val << " at: " << upperBound << endl;
 		} else {
-			response << "Error: " << " Key: " + key + " not found";
+			response = {
+				{"status", "Error"},
+				{"msg", "Key: '" + key + "' not found"}
+			};
 			cout << "Key: " << key << " not found!!" << endl;
 		}
-	} else if(op == "AddNode") {
-		message delegate_req;
-		delegate_req.copy(req);
-		string nodeId, nodeAddress;
-		
-		req >> nodeId >> nodeAddress;
-		if(inRange(nodeId)) {
-			cout << "I have your keys" << endl;
-		} else {
-			cout << "Error: Not in my range, delegating..." << endl;
-			successor.send(delegate_req);
-		}
-
-
-		/*auto it = hashTable.find(key);
-		if(it != hashTable.end()){
-			val = hashTable[key];
-			response << "Ok" << "Key: \"" + key + "\" is associated with the value: \"" + val + "\" at: \"" + upperBound + "\"" ;
-			cout << "The Key: " << key << " is associated with the value: " << val << " at: " << upperBound << endl;
-		} else {
-			response << "Error: " << " Key: " + key + " not found";
-			cout << "Key: " << key << " not found!!" << endl;
-		}*/
 	} else {
-		response << "Error: " << " invalid option: " + op;
+		response = {
+			{"status", "Error"},
+			{"msg", "Invalid option: " + op}
+		};
 		cout << "Unknown option: " << op << endl;
 	}
-	clients[idClient]->send(response);
+	clients[req["id"]]->send(response.dump());
 }
 
-void handleClientRequest(message &req, socket &successor) {
-	message delegate_req;
-	delegate_req.copy(req);
+void nodeOps(json &req, socket &successor) {
+	string op, id;
+	op = req["op"];
+	id = req["data"];
+	json response;
 	
-	string idClient, addressClient, key;
-
-	if(req.get(0) == "AddNode" || req.get(0) == "DeleteNode") {
-		localOP(req, '', '');
-	}
-	req >> idClient >> addressClient;
-	
-	auto it = clients.find(idClient);
-	if(it == clients.end()) {
-		socket* sc = new socket(ctx, socket_type::push);
-		clients.emplace(idClient,sc);
-		clients[idClient]->connect(addressClient);
-	}
-	
-	req >> key;
-	if(inRange(key)) {
-		cout << "Key " << key << " is mine!" << endl;
-		localOP(req, key, idClient);
+	if(op == "AddNode") {
+		if(inRange(id)) {
+			cout << "I have your Keys" << endl;
+		} else {
+			cout << "Error: Not in my range, delegating..." << endl;
+			successor.send(req.dump());
+		}
+	} else if(op =="DeleteNode") {
+		cout << "Taking over your keys" << endl;
+	} else if(op =="UpdateSucc") {
+		cout << "My successor changed" << endl;
 	} else {
-		cout << "Error: Not my responsability, delegating..." << endl;
-		successor.send(delegate_req);
+		response = {
+			{"status", "Error"},
+			{"msg", "Invalid option: " + op}
+		};
+		cout << "Unknown option: " << op << endl;
+	}
+}
+
+void handleClientRequest(json &req, socket &successor) {
+	if(req["source"] == "node") {
+		nodeOps(req, successor);
+	} else if(req["source"] == "client") {
+		string idClient, addressClient, key;
+		idClient = req["id"];
+		addressClient = req["address"];
+
+		auto it = clients.find(idClient);
+		if(it == clients.end()) {
+			socket* sc = new socket(ctx, socket_type::push);
+			clients.emplace(idClient,sc);
+			clients[idClient]->connect(addressClient);
+		}
+
+		key = req["key"];
+		if(inRange(key)) {
+			cout << "Key " << key << " is mine!" << endl;
+			localOP(req);
+		} else {
+			cout << "Error: Not my responsability, delegating..." << endl;
+			successor.send(req.dump());
+		}
+	} else {
+		cout << "Unkown source, ignoring message!!" << endl;
 	}
 }
 
@@ -159,14 +183,18 @@ int main(int argc, char** argv) {
     upperBound = string(myID);
 
     if(bootstrap) {
-    	message id_msg, id_msg_res;
-	    id_msg << "send_id" << myID;
-	    mySuccessor.send(id_msg);
+    	string id_msg_res;
+    	json ans;
+    	json id_msg = {
+    		{"op", "send_id"},
+    		{"data", myID}
+    	};
+	    mySuccessor.send(id_msg.dump());
 
 	    mySocket.receive(id_msg_res);
-	    id_msg_res >> op;
-		if(op == "send_id") {
-			id_msg_res >> lowerBound;
+	    ans = json::parse(id_msg_res);
+		if(ans["op"] == "send_id") {
+			lowerBound = ans["data"];
 		} else {
 			cout << "Unknown option: " << op << endl;
 			return EXIT_FAILURE;
@@ -178,12 +206,24 @@ int main(int argc, char** argv) {
 		send my id
 		send my address
 		******************************************************************/
+		string res;
+		json ans;
+    	json id_msg = {
+    		{"source", "node"},
+    		{"op", "AddNode"},
+    		{"data", myID},
+    		{"address", address}
+    	};
 
-		message id_msg, id_msg_res;
-		id_msg << "AddNode" << myID << address;
-		mySuccessor.send(id_msg);
+    	socket tmp(ctx, socket_type::push);
+    	tmp.connect("tcp://localhost:" + string(successorAddress));
+		tmp.send(id_msg.dump());
+		tmp.close();
 
-	    mySocket.receive(id_msg_res);
+	    mySocket.receive(res);
+	    ans = json::parse(res);
+
+	    /*lower_bound, mysuccesor*/
     }
 
 	socket clientsSocket(ctx, socket_type::pull);
@@ -215,15 +255,17 @@ int main(int argc, char** argv) {
 			}
 			if(p.has_input(mySocket)) {
 				cout << "input from node" << endl;
-				message node_req;
+				string node_req;
 				mySocket.receive(node_req);
-				handleClientRequest(node_req, mySuccessor);
+				json req = json::parse(node_req);
+				handleClientRequest(req, mySuccessor);
 			}
 			if(p.has_input(clientsSocket)) {
 				cout << "input from client" << endl;
-				message client_req;
+				string client_req;
 				clientsSocket.receive(client_req);
-				handleClientRequest(client_req, mySuccessor);
+				json req = json::parse(client_req);
+				handleClientRequest(req, mySuccessor);
 			}
 		}
 	}
