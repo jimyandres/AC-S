@@ -5,9 +5,11 @@
 #include <vector>
 #include <zmqpp/zmqpp.hpp>
 #include <openssl/sha.h>
+#include "src/json.hpp"
 
 using namespace std;
 using namespace zmqpp;
+using json = nlohmann::json;
 
 void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH*2+1]) {
     for(int i = 0; i < SHA_DIGEST_LENGTH; i++)
@@ -78,27 +80,37 @@ int main(int argc, char** argv) {
 						//cout << "Input is: " << val << endl;
 						getID(inputs.back(), key);
 
-						message req;
-						req << nodeName << nodeName << key << inputs.front() << inputs.back();
-						req_serverSocket.send(req);
+						//message req;
+						json req = {
+							{"source", "client"},
+							{"id", nodeName},
+							{"address", nodeName},
+							{"op", inputs.front()},
+							{"key", key},
+							{"val", inputs.back()}
+						};
+						//req << nodeName << nodeName << key << inputs.front() << inputs.back();
+						cout << setw(4) << req << endl;
+						cout << req.dump() << endl;
+						req_serverSocket.send(req.dump());
 						cout << "Message sended" << endl;
 					}
 				}
 			}
 			if(p.has_input(ans_serverSocket)) {
-				string status, ok_msg, err_msg;
-				message res;
+				//string status, ok_msg, err_msg;
+				string res;
 				ans_serverSocket.receive(res);
+				json ans = json::parse(res);
 
-				res >> status;
-				if(status == "Ok") {
-					res >> ok_msg;
-					cout << ok_msg << endl;
-				} else if(status == "Error") {
-					res >> err_msg;
-					cout << err_msg;
+				//res >> status;
+				if(ans["status"] == "Ok") {
+					//res >> ok_msg;
+					cout << ans["msg"] << endl;
+				} else if(ans["status"] == "Error") {
+					//res >> err_msg;
+					cout << ans["msg"] << endl;
 				}
-				//cout << key << req << endl;
 			}
 		}
 	}
