@@ -90,8 +90,8 @@ int main(int argc, char** argv) {
 							{"val", inputs.back()}
 						};
 						//req << nodeName << nodeName << key << inputs.front() << inputs.back();
-						cout << setw(4) << req << endl;
-						cout << req.dump() << endl;
+						//cout << setw(4) << req << endl;
+						//cout << req.dump() << endl;
 						req_serverSocket.send(req.dump());
 						cout << "Message sended" << endl;
 					}
