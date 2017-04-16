@@ -14,7 +14,7 @@ using json = nlohmann::json;
 static unordered_map<string, socket*> clients;
 static context ctx;
 static unordered_map<string, string> hashTable;
-static string lowerBound = "", upperBound = "";
+static string lowerBound = "", upperBound = "", address = "", succAddress = "";
 
 void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH*2+1]) {
     for(int i = 0; i < SHA_DIGEST_LENGTH; i++)
@@ -96,15 +96,56 @@ void localOP(json &req) {
 	clients[req["id"]]->send(response.dump());
 }
 
+void sendToNode(string nodeAdd) {
+	socket tmp(ctx, socket_type::push);
+	tmp.connect("tcp://localhost:" + nodeAdd);	
+	for (auto& x: hashTable) {
+		if(!inRange(x.first)) {
+			cout << x.first << ": " << x.second << endl;
+			//send to new node
+			json data = {
+				{"source", "node"},
+				{"op", "saveData"},
+				{"key", x.first},
+				{"val", x.second}
+			};
+			tmp.send(data.dump());
+			hashTable.erase(x.first);
+		}
+	}
+	tmp.close();
+}
+
 void nodeOps(json &req, socket &successor) {
-	string op, id;
+	string op, id, nodeAdd;
 	op = req["op"];
-	id = req["data"];
 	json response;
 	
 	if(op == "AddNode") {
 		if(inRange(id)) {
+			id = req["data"];
+			nodeAdd = req["address"];
 			cout << "I have your Keys" << endl;
+			string tmp = lowerBound;
+			lowerBound = id;
+			response = {
+				{"op", op},
+				{"data", tmp},
+				{"succAddress", address}
+			};
+			socket tmpSocekt(ctx, socket_type::pair);
+	    	tmpSocekt.connect("tcp://localhost:" + nodeAdd);
+			tmpSocekt.send(response.dump());
+			tmpSocekt.disconnect("tcp://localhost:" + nodeAdd);
+			tmpSocekt.close();
+			json updateSucc = {
+				{"source", "node"},
+				{"op", "UpdateSucc"},
+				{"data", tmp},
+				//{"data", id},
+				{"address", nodeAdd}
+			};
+			successor.send(updateSucc.dump());
 		} else {
 			cout << "Error: Not in my range, delegating..." << endl;
 			successor.send(req.dump());
@@ -112,7 +153,26 @@ void nodeOps(json &req, socket &successor) {
 	} else if(op =="DeleteNode") {
 		cout << "Taking over your keys" << endl;
 	} else if(op =="UpdateSucc") {
-		cout << "My successor changed" << endl;
+		id = req["data"];
+		nodeAdd = req["address"];
+		if(id == upperBound) {
+			successor.disconnect("tcp://localhost:" + succAddress);
+			successor.connect("tcp://localhost:" + nodeAdd);
+			succAddress = nodeAdd;
+			cout << "My successor changed, connected to: " << nodeAdd << endl;
+		} else {
+			cout << "Error: Not me, delegating..." << endl;
+			successor.send(req.dump());	
+		}
+	} else if (op == "sendData") {
+		nodeAdd = req["address"];
+		sendToNode(nodeAdd);
+	} else if(op == "saveData") {
+		string key, val;
+		key = req["key"];
+		val = req["val"];
+		hashTable.emplace(key,val);
+		cout << "Stored Key: " << key << " Val: " << val << " at: " << upperBound << endl;
 	} else {
 		response = {
 			{"status", "Error"},
@@ -159,30 +219,36 @@ void deleteSockets() {
 int main(int argc, char** argv) {
 	srand(time(NULL));
 	if(argc != 5) {
-		cout << "Enter myAddress successorAddress clientsAddress" << endl;
+		cout << "Enter bootstrap(1 or 0) myAddress neighborAddress clientsAddress" << endl;
 		return EXIT_FAILURE;
 	}
 	char myID[SHA_DIGEST_LENGTH*2+1];
-	string myAddress, successorAddress, clientsAddress, op;
+	string myAddress, neighborAddress, clientsAddress, op;
 
 	int bootstrap = atoi(argv[1]);
 	myAddress = argv[2];
-	successorAddress = argv[3];
+	neighborAddress = argv[3];
 	clientsAddress = argv[4];
-
-	cout << "Listening on " << myAddress << " and connectig to neighbor on " << successorAddress << endl;
 
 	socket mySocket(ctx, socket_type::pair);
 	mySocket.bind("tcp://*:" + string(myAddress));
-	string address = "tcp://localhost:" + string(myAddress);
+	//address = "tcp://localhost:" + string(myAddress);
+	address = string(myAddress);
 
 	socket mySuccessor(ctx, socket_type::pair);
-    mySuccessor.connect("tcp://localhost:" + string(successorAddress));
 
-    getID(to_string(rand()%100), myID);
+	getID(to_string(rand()%100), myID);
     upperBound = string(myID);
 
+    socket clientsSocket(ctx, socket_type::pull);
+	clientsSocket.bind("tcp://*:" + string(clientsAddress));
+	cout << "Listening to clients on port " << clientsAddress << endl;
+
     if(bootstrap) {
+    	mySuccessor.connect("tcp://localhost:" + string(neighborAddress));
+    	//succAddress = "tcp://localhost:" + string(successorAddress);
+    	succAddress = string(neighborAddress);
+
     	string id_msg_res;
     	json ans;
     	json id_msg = {
@@ -199,9 +265,10 @@ int main(int argc, char** argv) {
 			cout << "Unknown option: " << op << endl;
 			return EXIT_FAILURE;
 		}
+		cout << "Listening on " << myAddress << " and connectig to neighbor on " << neighborAddress << endl;
 		cout << "Responsible for keys in " << interval() << endl;
     } else {
-    	cout << "Connect to existing chord, not implemented yet!" << endl;
+    	cout << "Connecting to existing chord..." << endl;
     	/*****************************************************************
 		send my id
 		send my address
@@ -216,19 +283,30 @@ int main(int argc, char** argv) {
     	};
 
     	socket tmp(ctx, socket_type::push);
-    	tmp.connect("tcp://localhost:" + string(successorAddress));
+    	tmp.connect("tcp://localhost:" + string(neighborAddress));
 		tmp.send(id_msg.dump());
 		tmp.close();
 
 	    mySocket.receive(res);
 	    ans = json::parse(res);
 
+	    lowerBound = ans["data"];
+	    //mySuccessor.disconnect("tcp://localhost:" + succAddress);
+	    string strTmp = ans["succAddress"];
+	    mySuccessor.connect("tcp://localhost:" + strTmp);
+	    succAddress = strTmp;
+	    json send_data = {
+	    	{"source", "node"},
+	    	{"op", "sendData"},
+	    	{"address", string(clientsAddress)}
+	    };
+	    mySuccessor.send(send_data.dump());
+
+	    cout << "Listening on " << myAddress << " and connected to neighbor on " << strTmp << endl;
+	    cout << "Responsible for keys in " << interval() << endl;
+
 	    /*lower_bound, mysuccesor*/
     }
-
-	socket clientsSocket(ctx, socket_type::pull);
-	clientsSocket.bind("tcp://*:" + string(clientsAddress));
-	cout << "Listening to clients on port " << clientsAddress << endl;
 
 	int standardin = fileno(stdin);
 	poller p;
@@ -245,6 +323,7 @@ int main(int argc, char** argv) {
 				if(input == "q" || input == "quit" || input == "Quit" || input == "ex" || input == "Exit" || input == "exit") {
 					break;
 				} else if(input == "sh") {
+					cout << "Responsible for keys in " << interval() << endl;
 					cout << "Hash Table contains: " << endl;
 					for (auto& x: hashTable)
 						cout << x.first << ": " << x.second << endl;
