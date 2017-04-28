@@ -14,7 +14,7 @@ using json = nlohmann::json;
 static unordered_map<string, socket*> clients;
 static context ctx;
 static unordered_map<string, string> hashTable;
-static string lowerBound = "", upperBound = "", address = "", succAddress = "";
+static string lowerBound = "", upperBound = "", myAddress = "", neighborAddress = "";
 
 void ChecksumToString(unsigned char * check_sum, char mdString[SHA_DIGEST_LENGTH*2+1]) {
     for(int i = 0; i < SHA_DIGEST_LENGTH; i++)
@@ -116,22 +116,52 @@ void sendToNode(string nodeAdd) {
 	tmp.close();
 }
 
-void nodeOps(json &req, socket &successor) {
-	string op, id, nodeAdd;
+
+void echo(socket &successor) {
+	cout << "Responsible for keys in " << interval() << endl;
+	cout << "Hash Table contains: " << endl;
+	for (auto& x: hashTable)
+		cout << x.first << ": " << x.second << endl;
+	cout << "Clients Table contains: " << endl;
+	for (auto& x: clients)
+		cout << x.first << ": " << x.second << endl;
+
+	json echo = {
+		{"source", "node"},
+		{"op", "echo"},
+		{"init", upperBound}
+	};
+	successor.send(echo.dump());
+}
+
+void echo(socket &successor, json &req) {
+	cout << "Responsible for keys in " << interval() << endl;
+	cout << "Hash Table contains: " << endl;
+	for (auto& x: hashTable)
+		cout << x.first << ": " << x.second << endl;
+	cout << "Clients Table contains: " << endl;
+	for (auto& x: clients)
+		cout << x.first << ": " << x.second << endl;
+
+	successor.send(req.dump());
+}
+
+void nodeOps(json &req, socket &successor, socket &mySocket) {
+	string op, id;//nodeAdd;
 	op = req["op"];
 	json response;
 	
 	if(op == "AddNode") {
 		if(inRange(id)) {
 			id = req["data"];
-			nodeAdd = req["address"];
+			string nodeAdd = req["address"];
 			cout << "I have your Keys" << endl;
 			string tmp = lowerBound;
 			lowerBound = id;
 			response = {
 				{"op", op},
 				{"data", tmp},
-				{"succAddress", address}
+				{"succAddress", myAddress}
 			};
 			socket tmpSocekt(ctx, socket_type::pair);
 	    	tmpSocekt.connect("tcp://localhost:" + nodeAdd);
@@ -141,11 +171,12 @@ void nodeOps(json &req, socket &successor) {
 			json updateSucc = {
 				{"source", "node"},
 				{"op", "UpdateSucc"},
-				{"data", tmp},
+				//{"data", tmp},
 				//{"data", id},
 				{"address", nodeAdd}
 			};
-			successor.send(updateSucc.dump());
+			mySocket.send(updateSucc.dump());
+			//successor.send(updateSucc.dump());
 		} else {
 			cout << "Error: Not in my range, delegating..." << endl;
 			successor.send(req.dump());
@@ -153,19 +184,21 @@ void nodeOps(json &req, socket &successor) {
 	} else if(op =="DeleteNode") {
 		cout << "Taking over your keys" << endl;
 	} else if(op =="UpdateSucc") {
-		id = req["data"];
-		nodeAdd = req["address"];
-		if(id == upperBound) {
-			successor.disconnect("tcp://localhost:" + succAddress);
+		//id = req["data"];
+		cout << op << endl;
+		string nodeAdd = req["address"];
+		//if(id == upperBound) {
+			string disc = "tcp://localhost:" + neighborAddress;
+			successor.disconnect(disc);
 			successor.connect("tcp://localhost:" + nodeAdd);
-			succAddress = nodeAdd;
+			neighborAddress = nodeAdd;
 			cout << "My successor changed, connected to: " << nodeAdd << endl;
-		} else {
-			cout << "Error: Not me, delegating..." << endl;
-			successor.send(req.dump());	
-		}
+		//} else {
+		//	cout << "Error: Not me, delegating..." << endl;
+		//	successor.send(req.dump());	
+		//}
 	} else if (op == "sendData") {
-		nodeAdd = req["address"];
+		string nodeAdd = req["address"];
 		sendToNode(nodeAdd);
 	} else if(op == "saveData") {
 		string key, val;
@@ -173,6 +206,18 @@ void nodeOps(json &req, socket &successor) {
 		val = req["val"];
 		hashTable.emplace(key,val);
 		cout << "Stored Key: " << key << " Val: " << val << " at: " << upperBound << endl;
+	} else if(op == "echo") {
+		if (req["init"] == upperBound) {
+			//cout << "Recvd: " << req["init"] << "Mine: " << upperBound << endl;
+			//assert(req["init"] == upperBound);
+			cout << "echo done" << endl;
+			return;
+		}
+		else {
+			//cout << "Recvd: " << req["init"] << "Mine: " << upperBound << endl;
+			//assert(req["init"] == upperBound);
+			echo(successor, req);
+		}
 	} else {
 		response = {
 			{"status", "Error"},
@@ -182,9 +227,9 @@ void nodeOps(json &req, socket &successor) {
 	}
 }
 
-void handleClientRequest(json &req, socket &successor) {
+void handleClientRequest(json &req, socket &successor, socket &mySocket) {
 	if(req["source"] == "node") {
-		nodeOps(req, successor);
+		nodeOps(req, successor, mySocket);
 	} else if(req["source"] == "client") {
 		string idClient, addressClient, key;
 		idClient = req["id"];
@@ -223,7 +268,7 @@ int main(int argc, char** argv) {
 		return EXIT_FAILURE;
 	}
 	char myID[SHA_DIGEST_LENGTH*2+1];
-	string myAddress, neighborAddress, clientsAddress, op;
+	string /*myAddress, neighborAddress,*/ clientsAddress, op;
 
 	int bootstrap = atoi(argv[1]);
 	myAddress = argv[2];
@@ -233,7 +278,7 @@ int main(int argc, char** argv) {
 	socket mySocket(ctx, socket_type::pair);
 	mySocket.bind("tcp://*:" + string(myAddress));
 	//address = "tcp://localhost:" + string(myAddress);
-	address = string(myAddress);
+	//address = string(myAddress);
 
 	socket mySuccessor(ctx, socket_type::pair);
 
@@ -247,7 +292,7 @@ int main(int argc, char** argv) {
     if(bootstrap) {
     	mySuccessor.connect("tcp://localhost:" + string(neighborAddress));
     	//succAddress = "tcp://localhost:" + string(successorAddress);
-    	succAddress = string(neighborAddress);
+    	//succAddress = string(neighborAddress);
 
     	string id_msg_res;
     	json ans;
@@ -279,7 +324,7 @@ int main(int argc, char** argv) {
     		{"source", "node"},
     		{"op", "AddNode"},
     		{"data", myID},
-    		{"address", address}
+    		{"address", myAddress}
     	};
 
     	socket tmp(ctx, socket_type::push);
@@ -294,7 +339,7 @@ int main(int argc, char** argv) {
 	    //mySuccessor.disconnect("tcp://localhost:" + succAddress);
 	    string strTmp = ans["succAddress"];
 	    mySuccessor.connect("tcp://localhost:" + strTmp);
-	    succAddress = strTmp;
+	    neighborAddress = strTmp;
 	    json send_data = {
 	    	{"source", "node"},
 	    	{"op", "sendData"},
@@ -323,13 +368,20 @@ int main(int argc, char** argv) {
 				if(input == "q" || input == "quit" || input == "Quit" || input == "ex" || input == "Exit" || input == "exit") {
 					break;
 				} else if(input == "sh") {
-					cout << "Responsible for keys in " << interval() << endl;
+					/*cout << "Responsible for keys in " << interval() << endl;
 					cout << "Hash Table contains: " << endl;
 					for (auto& x: hashTable)
 						cout << x.first << ": " << x.second << endl;
 					cout << "Clients Table contains: " << endl;
 					for (auto& x: clients)
 						cout << x.first << ": " << x.second << endl;
+					json echo = {
+						{"source", "node"},
+						{"op", "echo"},
+						{"init", upperBound}
+					};
+					mySuccessor.send(echo.dump());*/
+					echo(mySuccessor);
 				}
 			}
 			if(p.has_input(mySocket)) {
@@ -337,14 +389,14 @@ int main(int argc, char** argv) {
 				string node_req;
 				mySocket.receive(node_req);
 				json req = json::parse(node_req);
-				handleClientRequest(req, mySuccessor);
+				handleClientRequest(req, mySuccessor, mySocket);
 			}
 			if(p.has_input(clientsSocket)) {
 				cout << "input from client" << endl;
 				string client_req;
 				clientsSocket.receive(client_req);
 				json req = json::parse(client_req);
-				handleClientRequest(req, mySuccessor);
+				handleClientRequest(req, mySuccessor, mySocket);
 			}
 		}
 	}
