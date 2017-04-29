@@ -37,22 +37,25 @@ vector<string> getOptions(string input) {
 }
 
 int main(int argc, char** argv) {
+	string serverAddress = "tcp://", clientAddress = "tcp://";
 	if(argc != 3) {
 		cout << "Enter server address and client address!" << endl;
 		return EXIT_FAILURE;
 	}
+	serverAddress.append(argv[1]);
+	clientAddress.append(argv[2]);
 
 	// Socket to request to servers
 	context ctx;
 	socket req_serverSocket(ctx, socket_type::push);	
-	req_serverSocket.connect("tcp://localhost:" + string(argv[1]));
+	req_serverSocket.connect(serverAddress);
 
 	// Socket to receive servers answers
-	string client_address = "tcp://*:" + string(argv[2]);
-	string nodeName = "tcp://localhost:" + string(argv[2]);
-	cout << nodeName << endl;
+	//string client_address = "tcp://*:" + string(argv[2]);
+	//string nodeName = "tcp://localhost:" + string(argv[2]);
+	cout << clientAddress << endl;
 	socket ans_serverSocket(ctx, socket_type::pull);	
-	ans_serverSocket.bind(client_address);
+	ans_serverSocket.bind(clientAddress);
 
 	int standardin = fileno(stdin);
 	poller p;
@@ -83,8 +86,8 @@ int main(int argc, char** argv) {
 						//message req;
 						json req = {
 							{"source", "client"},
-							{"id", nodeName},
-							{"address", nodeName},
+							{"id", clientAddress},
+							{"address", clientAddress},
 							{"op", inputs.front()},
 							{"key", key},
 							{"val", inputs.back()}
