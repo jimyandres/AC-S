@@ -37,7 +37,7 @@ bool inRange(string key) {
 	if (upperBound >= lowerBound) {
 		return (key > lowerBound && key <= upperBound);
 	} else {
-		return (key >= lowerBound || key < upperBound);
+		return (key > lowerBound || key <= upperBound);
 	}
 }
 
@@ -97,8 +97,8 @@ void localOP(json &req) {
 	clients[req["id"]]->send(response.dump());
 }
 
-void sendToNode(string nodeAdd) {
-	socket tmp(ctx, socket_type::push);
+void sendToNode(/*string nodeAdd*/socket &mySocket) {
+	/*socket tmp(ctx, socket_type::push);
 	tmp.connect(nodeAdd);	
 	for (auto& x: hashTable) {
 		if(!inRange(x.first)) {
@@ -114,13 +114,29 @@ void sendToNode(string nodeAdd) {
 			hashTable.erase(x.first);
 		}
 	}
-	tmp.close();
+	tmp.close();*/
+	if (hashTable.empty()) {
+		cout << "Nothing to send..." << endl;
+	} else {
+		for (auto& x: hashTable) {
+			cout << x.first << ": " << x.second << " sended" << endl;
+			//send to new node
+			json data = {
+				{"source", "node"},
+				{"op", "saveData"},
+				{"key", x.first},
+				{"val", x.second}
+			};
+			mySocket.send(data.dump());
+			hashTable.erase(x.first);
+		}
+	}
 }
 
 void showInfo() {
 	cout << endl;
 	cout << endl;
-	cout << "********************************************************************************" << endl;
+	//cout << "********************************************************************************" << endl;
 	cout << "Responsible for keys in " << interval() << endl;
 	cout << "Hash Table contains: " << endl;
 	for (auto& x: hashTable)
@@ -140,7 +156,11 @@ void echo(socket &successor) {
 		{"op", "echo"},
 		{"init", upperBound}
 	};
-	successor.send(echo.dump());
+	if(successor.send(echo.dump(), socket::dont_wait)) {
+		cout << "Message sended" << endl;
+	} else {
+		cout << "Error sending message" << endl;
+	}
 }
 
 /*void echo(socket &successor, json &req) {
@@ -162,8 +182,8 @@ void nodeOps(json &req, socket &successor, socket &mySocket) {
 	json response;
 	
 	if(op == "AddNode") {
+		id = req["data"];
 		if(inRange(id)) {
-			id = req["data"];
 			string nodeAdd = req["address"];
 			cout << "I have your Keys" << endl;
 			string tmp = lowerBound;
@@ -197,10 +217,14 @@ void nodeOps(json &req, socket &successor, socket &mySocket) {
 			//successor.send(updateSucc.dump());
 		} else {
 			cout << "Error: Not in my range, delegating..." << endl;
-			successor.send(req.dump());
+			if(id < lowerBound)
+				mySocket.send(req.dump());
+			else
+				successor.send(req.dump());
 		}
 	} else if(op =="DeleteNode") {
 		cout << "Taking over your keys" << endl;
+		lowerBound = req["data"];
 	} else if(op =="UpdateSucc") {
 		//id = req["data"];
 		//cout << op << endl;
@@ -218,7 +242,7 @@ void nodeOps(json &req, socket &successor, socket &mySocket) {
 		}*/
 	} else if (op == "sendData") {
 		string nodeAdd = req["address"];
-		sendToNode(nodeAdd);
+		sendToNode(/*nodeAdd*/mySocket);
 	} else if(op == "saveData") {
 		string key, val;
 		key = req["key"];
@@ -274,7 +298,10 @@ void handleClientRequest(json &req, socket &successor, socket &mySocket) {
 			localOP(req);
 		} else {
 			cout << "Error: Not my responsability, delegating..." << endl;
-			successor.send(req.dump());
+			if(key < lowerBound)
+				mySocket.send(req.dump());
+			else
+				successor.send(req.dump());
 		}
 	} else {
 		cout << "Unkown source, ignoring message!!" << endl;
@@ -284,6 +311,44 @@ void handleClientRequest(json &req, socket &successor, socket &mySocket) {
 void deleteSockets() {
 	for(auto& e:clients) {
 		delete e.second;
+	}
+}
+
+void delegateKeys(socket &successor, socket &mySocket) {
+	// send keys to successor
+	if(myAddress == neighborAddress)
+		return;
+	json req = {
+		{"source", "node"},
+		{"op", "DeleteNode"},
+		{"data", lowerBound}
+	};
+	successor.send(req.dump());
+	if (hashTable.empty()) {
+		cout << "Nothing to send..." << endl;
+	} else {
+		for (auto& x: hashTable) {
+			cout << x.first << ": " << x.second << " sended" << endl;
+			//send to new node
+			json data = {
+				{"source", "node"},
+				{"op", "saveData"},
+				{"key", x.first},
+				{"val", x.second}
+			};
+			successor.send(data.dump());
+			hashTable.erase(x.first);
+		}
+	}
+	json updateSucc = {
+		{"source", "node"},
+		{"op", "UpdateSucc"},
+		{"address", neighborAddress}
+	};
+	if(mySocket.send(updateSucc.dump(), socket::dont_wait)) {
+		cout << "message: " << setw(4) << updateSucc << endl;
+	} else {
+		cout << "error sending message" << endl;
 	}
 }
 
@@ -444,6 +509,7 @@ int main(int argc, char** argv) {
 			}
 		}
 	}
+	delegateKeys(mySuccessor, mySocket);
 	deleteSockets();
 	mySocket.close();
 	mySuccessor.close();
