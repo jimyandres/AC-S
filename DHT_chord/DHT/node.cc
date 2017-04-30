@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include <vector>
 #include <zmqpp/zmqpp.hpp>
 #include <openssl/sha.h>
 #include <unordered_map>
@@ -12,7 +13,9 @@ using namespace zmqpp;
 using json = nlohmann::json;
 
 static unordered_map<string, socket*> clients;
+static unordered_map<string, socket *> connections;
 static context ctx;
+static poller p;
 static unordered_map<string, string> hashTable;
 static string lowerBound = "", upperBound = "", myAddress = "tcp://", neighborAddress = "tcp://";
 
@@ -97,38 +100,28 @@ void localOP(json &req) {
 	clients[req["id"]]->send(response.dump());
 }
 
-void sendToNode(/*string nodeAdd*/socket &mySocket) {
-	/*socket tmp(ctx, socket_type::push);
-	tmp.connect(nodeAdd);	
-	for (auto& x: hashTable) {
-		if(!inRange(x.first)) {
-			cout << x.first << ": " << x.second << endl;
-			//send to new node
-			json data = {
-				{"source", "node"},
-				{"op", "saveData"},
-				{"key", x.first},
-				{"val", x.second}
-			};
-			tmp.send(data.dump());
-			hashTable.erase(x.first);
-		}
-	}
-	tmp.close();*/
+void sendToNode() {
 	if (hashTable.empty()) {
 		cout << "Nothing to send..." << endl;
 	} else {
+		vector<string> tmp;
 		for (auto& x: hashTable) {
-			cout << x.first << ": " << x.second << " sended" << endl;
-			//send to new node
-			json data = {
-				{"source", "node"},
-				{"op", "saveData"},
-				{"key", x.first},
-				{"val", x.second}
-			};
-			mySocket.send(data.dump());
-			hashTable.erase(x.first);
+			if(!inRange(x.first)) {
+				cout << x.first << ": " << x.second << " sended" << endl;
+				//send to new node
+				json data = {
+					{"source", "node"},
+					{"op", "saveData"},
+					{"key", x.first},
+					{"val", x.second}
+				};
+				//mySocket.send(data.dump());
+				connections[myAddress]->send(data.dump());
+				tmp.emplace_back(x.first);
+			}
+		}
+		for (int i = 0; i < tmp.size(); i++) {
+			hashTable.erase(tmp[i]);
 		}
 	}
 }
@@ -136,7 +129,6 @@ void sendToNode(/*string nodeAdd*/socket &mySocket) {
 void showInfo() {
 	cout << endl;
 	cout << endl;
-	//cout << "********************************************************************************" << endl;
 	cout << "Responsible for keys in " << interval() << endl;
 	cout << "Hash Table contains: " << endl;
 	for (auto& x: hashTable)
@@ -144,40 +136,30 @@ void showInfo() {
 	cout << "Clients Table contains: " << endl;
 	for (auto& x: clients)
 		cout << x.first << ": " << x.second << endl;
+	cout << "Connections Table contains: " << endl;
+	for (auto& x: connections)
+		cout << x.first << ": " << x.second << endl;
 	cout << "mySocket: " << myAddress << " myNeighbor: " << neighborAddress << endl;
 	cout << endl;
 	cout << endl;
 }
 
-void echo(socket &successor) {
+void echo() {
 	showInfo();
 	json echo = {
 		{"source", "node"},
 		{"op", "echo"},
 		{"init", upperBound}
 	};
-	if(successor.send(echo.dump(), socket::dont_wait)) {
+	if(connections[neighborAddress]->send(echo.dump(), socket::dont_wait)) {
 		cout << "Message sended" << endl;
 	} else {
 		cout << "Error sending message" << endl;
 	}
 }
 
-/*void echo(socket &successor, json &req) {
-	cout << "Responsible for keys in " << interval() << endl;
-	cout << "Hash Table contains: " << endl;
-	for (auto& x: hashTable)
-		cout << x.first << ": " << x.second << endl;
-	cout << "Clients Table contains: " << endl;
-	for (auto& x: clients)
-		cout << x.first << ": " << x.second << endl;
-	cout << "mySocket: " << myAddress << " myNeighbor: " << neighborAddress << endl;
-
-	successor.send(req.dump());
-}*/
-
-void nodeOps(json &req, socket &successor, socket &mySocket) {
-	string op, id;//nodeAdd;
+void nodeOps(json &req ) {
+	string op, id;
 	op = req["op"];
 	json response;
 	
@@ -190,11 +172,9 @@ void nodeOps(json &req, socket &successor, socket &mySocket) {
 			json updateSucc = {
 				{"source", "node"},
 				{"op", "UpdateSucc"},
-				//{"data", tmp},
-				//{"data", id},
 				{"address", nodeAdd}
 			};
-			if(mySocket.send(updateSucc.dump())) {
+			if(connections[myAddress]->send(updateSucc.dump())) {
 				//cout << "message: " << setw(4) << updateSucc << endl;
 			} else {
 				cout << "error sending message" << endl;
@@ -212,37 +192,36 @@ void nodeOps(json &req, socket &successor, socket &mySocket) {
 			} else {
 				cout << "error sending message" << endl;
 			}
-			//tmpSocekt.disconnect(req["respAdd"]);
 			tmpSocekt.close();
-			//successor.send(updateSucc.dump());
 		} else {
 			cout << "Error: Not in my range, delegating..." << endl;
 			if(id < lowerBound)
-				mySocket.send(req.dump());
+				connections[myAddress]->send(req.dump());
 			else
-				successor.send(req.dump());
+				connections[neighborAddress]->send(req.dump());
 		}
 	} else if(op =="DeleteNode") {
 		cout << "Taking over your keys" << endl;
 		lowerBound = req["data"];
 	} else if(op =="UpdateSucc") {
-		//id = req["data"];
-		//cout << op << endl;
-		//string nodeAdd = req["address"];
-		//if(id == upperBound) {
-			//string disc = "tcp://localhost:" + neighborAddress;
-			//cout << neighborAddress << endl;
-			successor.connect(req["address"]);
-			successor.disconnect(neighborAddress);
-			neighborAddress = req["address"];
-			cout << "My successor changed, connected to: " << neighborAddress << endl;
-		/*} else {
-			cout << "Error: Not me, delegating..." << endl;
-			successor.send(req.dump());	
-		}*/
+		unordered_map<string, socket *>::iterator it = connections.find(neighborAddress);
+		if (it != connections.end()) {
+			p.remove(*it->second);
+			it->second->close();
+			delete it->second;
+			connections.erase(it);
+		}
+		neighborAddress = req["address"];
+
+		if(neighborAddress != myAddress) {
+			socket* sc = new socket(ctx, socket_type::pair);
+			connections.emplace(neighborAddress, sc);
+			connections[neighborAddress]->connect(neighborAddress);
+			p.add(*connections[neighborAddress], poller::poll_in);
+		}
+		cout << "My successor changed, connected to: " << neighborAddress << endl;
 	} else if (op == "sendData") {
-		string nodeAdd = req["address"];
-		sendToNode(/*nodeAdd*/mySocket);
+		sendToNode();
 	} else if(op == "saveData") {
 		string key, val;
 		key = req["key"];
@@ -251,22 +230,17 @@ void nodeOps(json &req, socket &successor, socket &mySocket) {
 		cout << "Stored Key: " << key << " Val: " << val << " at: " << upperBound << endl;
 	} else if(op == "echo") {
 		if (req["init"] == upperBound) {
-			//cout << "Recvd: " << req["init"] << "Mine: " << upperBound << endl;
-			//assert(req["init"] == upperBound);
-			//showInfo();
 			cout << "echo done" << endl;
 			return;
 		}
 		else {
 			showInfo();
-			//cout << "Recvd: " << req["init"] << "Mine: " << upperBound << endl;
-			//assert(req["init"] == upperBound);
-			if(successor.send(req.dump(), socket::dont_wait)) {
+			//mySocket.send(req.dump());
+			if(connections[neighborAddress]->send(req.dump(), socket::dont_wait)) {
 				cout << "Message sended" << endl;
 			} else {
 				cout << "Error sending message" << endl;
 			}
-			//mySocket.send(req.dump());
 		}
 	} else {
 		response = {
@@ -277,9 +251,9 @@ void nodeOps(json &req, socket &successor, socket &mySocket) {
 	}
 }
 
-void handleClientRequest(json &req, socket &successor, socket &mySocket) {
+void handleClientRequest(json &req) {
 	if(req["source"] == "node") {
-		nodeOps(req, successor, mySocket);
+		nodeOps(req);
 	} else if(req["source"] == "client") {
 		string idClient, addressClient, key;
 		idClient = req["id"];
@@ -299,9 +273,9 @@ void handleClientRequest(json &req, socket &successor, socket &mySocket) {
 		} else {
 			cout << "Error: Not my responsability, delegating..." << endl;
 			if(key < lowerBound)
-				mySocket.send(req.dump());
+				connections[myAddress]->send(req.dump());
 			else
-				successor.send(req.dump());
+				connections[neighborAddress]->send(req.dump());
 		}
 	} else {
 		cout << "Unkown source, ignoring message!!" << endl;
@@ -312,9 +286,12 @@ void deleteSockets() {
 	for(auto& e:clients) {
 		delete e.second;
 	}
+	for(auto& e:connections) {
+		delete e.second;
+	}
 }
 
-void delegateKeys(socket &successor, socket &mySocket) {
+void delegateKeys() {
 	// send keys to successor
 	if(myAddress == neighborAddress)
 		return;
@@ -323,7 +300,8 @@ void delegateKeys(socket &successor, socket &mySocket) {
 		{"op", "DeleteNode"},
 		{"data", lowerBound}
 	};
-	successor.send(req.dump());
+	//successor.send(req.dump());
+	connections[neighborAddress]->send(req.dump());
 	if (hashTable.empty()) {
 		cout << "Nothing to send..." << endl;
 	} else {
@@ -336,16 +314,17 @@ void delegateKeys(socket &successor, socket &mySocket) {
 				{"key", x.first},
 				{"val", x.second}
 			};
-			successor.send(data.dump());
-			hashTable.erase(x.first);
+			connections[neighborAddress]->send(data.dump());
+			//hashTable.erase(x.first);
 		}
+		hashTable.clear();
 	}
 	json updateSucc = {
 		{"source", "node"},
 		{"op", "UpdateSucc"},
 		{"address", neighborAddress}
 	};
-	if(mySocket.send(updateSucc.dump(), socket::dont_wait)) {
+	if(connections[myAddress]->send(updateSucc.dump(), socket::dont_wait)) {
 		cout << "message: " << setw(4) << updateSucc << endl;
 	} else {
 		cout << "error sending message" << endl;
@@ -359,7 +338,7 @@ int main(int argc, char** argv) {
 		return EXIT_FAILURE;
 	}
 	char myID[SHA_DIGEST_LENGTH*2+1];
-	string /*myAddress, neighborAddress,*/ clientsAddress="tcp://", op;
+	string clientsAddress="tcp://", op;
 
 	int bootstrap = atoi(argv[1]);
 	myAddress.append(argv[2]);
@@ -367,12 +346,9 @@ int main(int argc, char** argv) {
 	clientsAddress.append(argv[4]);
 	cout << myAddress << " " << neighborAddress << " " << clientsAddress << endl;
 
-	socket mySocket(ctx, socket_type::pair);
-	mySocket.bind(myAddress);
-	//address = "tcp://localhost:" + string(myAddress);
-	//address = string(myAddress);
-
-	socket mySuccessor(ctx, socket_type::pair);
+	socket* sc = new socket(ctx, socket_type::pair);
+	connections.emplace(myAddress,sc);
+	connections[myAddress]->bind(myAddress);
 
 	getID(to_string(rand()%100), myID);
     upperBound = string(myID);
@@ -382,9 +358,9 @@ int main(int argc, char** argv) {
 	cout << "Listening to clients on: " << clientsAddress << endl;
 
     if(bootstrap) {
-    	mySuccessor.connect(neighborAddress);
-    	//succAddress = "tcp://localhost:" + string(successorAddress);
-    	//succAddress = string(neighborAddress);
+    	socket* sc = new socket(ctx, socket_type::pair);
+		connections.emplace(neighborAddress,sc);
+		connections[neighborAddress]->connect(neighborAddress);
 
     	string id_msg_res;
     	json ans;
@@ -392,9 +368,11 @@ int main(int argc, char** argv) {
     		{"op", "send_id"},
     		{"data", myID}
     	};
-	    mySuccessor.send(id_msg.dump());
+	    //mySuccessor.send(id_msg.dump());
+	    connections[neighborAddress]->send(id_msg.dump());
 
-	    mySocket.receive(id_msg_res);
+	    //mySocket.receive(id_msg_res);
+	    connections[myAddress]->receive(id_msg_res);
 	    ans = json::parse(id_msg_res);
 		if(ans["op"] == "send_id") {
 			lowerBound = ans["data"];
@@ -402,14 +380,8 @@ int main(int argc, char** argv) {
 			cout << "Unknown option: " << op << endl;
 			return EXIT_FAILURE;
 		}
-		//cout << "Listening on: " << myAddress << " and connectig to neighbor on: " << neighborAddress << endl;
-		//cout << "Responsible for keys in " << interval() << endl;
     } else {
     	cout << "Connecting to existing chord..." << endl;
-    	/*****************************************************************
-		send my id
-		send my address
-		******************************************************************/
 		string res;
 		json ans;
     	json id_msg = {
@@ -425,38 +397,31 @@ int main(int argc, char** argv) {
 		tmp.send(id_msg.dump());
 		tmp.close();
 
-	    //mySocket.receive(res);
 	    clientsSocket.receive(res);
 	    ans = json::parse(res);
 	    //cout << "answer: " << setw(4) << ans << endl;
 
 	    lowerBound = ans["data"];
-	    //mySuccessor.disconnect("tcp://localhost:" + succAddress);
-	    //string strTmp = ans["succAddress"];
-	    //cout << "successor address: " << ans["succAddress"] << endl;
-	    mySuccessor.connect(ans["succAddress"]);
 	    neighborAddress = ans["succAddress"];
+
+	    socket* sc = new socket(ctx, socket_type::pair);
+		connections.emplace(neighborAddress,sc);
+		connections[neighborAddress]->connect(neighborAddress);
+
 	    json send_data = {
 	    	{"source", "node"},
-	    	{"op", "sendData"},
-	    	{"address", clientsAddress}
+	    	{"op", "sendData"}
 	    };
-	    mySuccessor.send(send_data.dump());
-
-	    //cout << "Listening on " << myAddress << " and connected to neighbor on " << neighborAddress << endl;
-	    //cout << "Responsible for keys in " << interval() << endl;
-
-	    /*lower_bound, mysuccesor*/
+	    connections[neighborAddress]->send(send_data.dump());
     }
     cout << "Listening on: " << myAddress << " and connectig to neighbor on: " << neighborAddress << endl;
 	cout << "Responsible for keys in " << interval() << endl;
 
 	int standardin = fileno(stdin);
-	poller p;
 
 	p.add(standardin, poller::poll_in);
-	p.add(mySocket, poller::poll_in);
-	p.add(mySuccessor, poller::poll_in);
+	p.add(*connections[myAddress], poller::poll_in);
+	p.add(*connections[neighborAddress], poller::poll_in);
 	p.add(clientsSocket, poller::poll_in);
 
 	while(true) {
@@ -467,37 +432,24 @@ int main(int argc, char** argv) {
 				if(input == "q" || input == "quit" || input == "Quit" || input == "ex" || input == "Exit" || input == "exit") {
 					break;
 				} else if(input == "sh") {
-					/*cout << "Responsible for keys in " << interval() << endl;
-					cout << "Hash Table contains: " << endl;
-					for (auto& x: hashTable)
-						cout << x.first << ": " << x.second << endl;
-					cout << "Clients Table contains: " << endl;
-					for (auto& x: clients)
-						cout << x.first << ": " << x.second << endl;
-					json echo = {
-						{"source", "node"},
-						{"op", "echo"},
-						{"init", upperBound}
-					};
-					mySuccessor.send(echo.dump());*/
-					echo(mySuccessor);
+					echo();
 				}
 			}
-			if(p.has_input(mySocket)) {
+			if(p.has_input(*connections[myAddress])) {
 				cout << "input from predecessor" << endl;
 				string node_req;
-				mySocket.receive(node_req);
+				connections[myAddress]->receive(node_req);
 				json req = json::parse(node_req);
 				//cout << "req: " << setw(4) << req << endl;
-				handleClientRequest(req, mySuccessor, mySocket);
+				handleClientRequest(req);
 			}
-			if(p.has_input(mySuccessor)) {
+			if(p.has_input(*connections[neighborAddress])) {
 				cout << "input from successor" << endl;
 				string node_req;
-				mySuccessor.receive(node_req);
+				connections[neighborAddress]->receive(node_req);
 				json req = json::parse(node_req);
 				//cout << "req: " << setw(4) << req << endl;
-				handleClientRequest(req, mySuccessor, mySocket);
+				handleClientRequest(req);
 			}
 			if(p.has_input(clientsSocket)) {
 				cout << "input from client" << endl;
@@ -505,14 +457,12 @@ int main(int argc, char** argv) {
 				clientsSocket.receive(client_req);
 				json req = json::parse(client_req);
 				//cout << "req: " << setw(4) << req << endl;
-				handleClientRequest(req, mySuccessor, mySocket);
+				handleClientRequest(req);
 			}
 		}
 	}
-	delegateKeys(mySuccessor, mySocket);
+	delegateKeys();
 	deleteSockets();
-	mySocket.close();
-	mySuccessor.close();
 	clientsSocket.close();
 	ctx.terminate();
 	return 0;
