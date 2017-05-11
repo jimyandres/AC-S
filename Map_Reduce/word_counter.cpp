@@ -88,7 +88,7 @@ void showResults()
 
 int main()
 {
-    std::ifstream fin("input.txt");
+    std::ifstream fin("input.txt", std::ifstream::binary);
 
     // countWords(fin);
     // showResults();
