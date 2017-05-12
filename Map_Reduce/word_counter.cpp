@@ -102,28 +102,36 @@ int main()
     fin.seekg(0, fin.end);
     int size = fin.tellg();
     fin.seekg(0, fin.beg);
+    std::cout << "Size: " << size << std::endl;
 
     int begin = 0;
     int batch_size = size/nthreads;
     for(int i=0; i<nthreads; i++) {
         if(i == nthreads - 1)
-            batch_size += (size - begin);
-
+            batch_size = (size - begin);
+        std::cout << "batch_size: " << batch_size << std::endl;
         int end = begin + batch_size;
         std::cout << "Begin: " << begin << std::endl;
         if(end > size)
             end = size;
-        fin.seekg(end, fin.beg);
+        std::cout << "Pos: " << fin.tellg() << std::endl;
+        fin.seekg(batch_size, fin.cur);
         std::cout << "Pos: " << fin.tellg() << std::endl;
         char c;
-        c=fin.get();
-        while(!isspace(c) && !fin.eof()) {
-            end++;
+        c=fin.peek();
+        std::cout << "Pos after peek: " << fin.eof() << " " << fin.fail() << std::endl;
+        while(!fin.eof() && !isspace(c)) {
+            std::cout << "Pos 1: " << fin.tellg() << std::endl;
             c=fin.get();
+            end++;
+            c=fin.peek();
+            std::cout << "Pos 2: " << fin.tellg() << std::endl;
         }
         std::cout << "End: " << end << std::endl;
-        fin.seekg(begin, fin.beg);
+        std::cout << "Pos: " << fin.tellg() << " " << fin.eof() << " " << fin.fail() << " " << fin.bad() << std::endl;
+        fin.seekg(-(end-begin), fin.cur);
         std::cout << "Pos: " << fin.tellg() << std::endl;
+
         char * data = new char [(end - begin)];
         fin.read(data, (end - begin));
 
@@ -133,7 +141,7 @@ int main()
         // in.get(std::cout);
         delete[] data;
         //threads.push_back(std::thread(countWords_parallel, "input.txt", begin, end));
-        begin += (end - begin);
+        begin = end;
     }
     std::cout << "synchronizing all threads..." << std::endl;
     for (auto& th : threads) {
