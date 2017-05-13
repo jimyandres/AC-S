@@ -1,1 +1,5 @@
-hola """"""hola" HOLA? halo!? 
+hola """"""hola" HOLA? halo!?
+In Use
+You can now treat your plain old c-arrays just like an input stream now. Something simple:
+synchronizing all threads...
+old c-arrays just like an input
