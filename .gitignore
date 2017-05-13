@@ -7,3 +7,6 @@ broker
 client
 node
 word_counter
+mapper
+reducer
+master
