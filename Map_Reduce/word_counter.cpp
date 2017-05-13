@@ -6,16 +6,10 @@
 #include <thread>
 #include <mutex>
 #include <vector>
+#include <sstream>
 
 std::unordered_map<std::string,int> words;
 std::mutex mtx;
-
-struct membuf : std::streambuf
-{
-    membuf(char* begin, char* end) {
-        this->setg(begin, begin, end);
-    }
-};
 
 std::string getNextToken(std::istream &in)
 {
@@ -32,27 +26,6 @@ std::string getNextToken(std::istream &in)
     return ans;
 }
 
-std::string getNextToken_parallel(std::istream &in, int end)
-{
-    char c;
-    std::string ans="";
-    c=in.get();
-    while(!std::isalnum(c) && !(in.tellg() != end)) { //remove non letter charachters
-        mtx.lock();
-        std::cout << "Non letter: " << c << std::endl;
-        c=in.get();
-        mtx.unlock();
-    }
-    while(std::isalnum(c)) {
-        mtx.lock();
-        std::cout << "Letter: " << c << std::endl;
-        ans.push_back(std::tolower(c));
-        c=in.get();
-        mtx.unlock();        
-    }
-    return ans;
-}
-
 void countWords(std::istream &in)
 {
     std::string s;
@@ -62,22 +35,21 @@ void countWords(std::istream &in)
     }
 }
 
-void countWords_parallel(std::string file, int begin, int end)
+void countWords_parallel(std::string data)
 {
-    mtx.lock();
-    std::cout << "thread: " << std::this_thread::get_id() << " Reading Range: (" << begin << ", " << end << ")" << std::endl;
-    mtx.unlock();
-    // std::ifstream in(file);
-    // in.seekg(begin, in.beg);
-    // std::string s;
-    // std::string empty ="";
-    // while((s=getNextToken_parallel(in, end))!=empty ) {
-    //     mtx.lock();
-    //     ++words[s];
-    //     std::cout << "thread: " << std::this_thread::get_id() << " Read: " << s << std::endl;
-    //     mtx.unlock();
-    //     //cout << "thread: " << this_thread::get_id() << " read: " << s << endl;
-    // }
+    std::istringstream in(data);
+    std::string s;
+    std::string empty ="";
+    while((s=getNextToken(in))!=empty ) {
+        mtx.lock();
+        ++words[s];
+        mtx.unlock();
+    }
+}
+
+int search_key(std::string key)
+{
+    return words[key];
 }
 
 void showResults()
@@ -86,98 +58,106 @@ void showResults()
         std::cout << x.first << ": " << x.second << std::endl;
 }
 
-int main()
+std::vector<std::string> getOptions(std::string input)
 {
-    std::ifstream fin("11-0.txt", std::ifstream::binary);
+    std::vector<std::string> inputs;
+    std::istringstream f(input);
+    std::string tmp;   
+    int i =0;
+    while (getline(f, tmp, ' ') && i < 2) {
+        inputs.push_back(tmp);
+        i++;
+    }
+    return inputs;
+}
 
-    // countWords(fin);
-    // showResults();
-    // words.clear();
-    // fin.close();
+void printMenu()
+{
+    std::cout << "\n\n***********************************\n";
+    std::cout << "Enter action to perform: \n\tsearch <word>\n\t(sh) Show all results\n\t(ex) Exit\n";
+    std::cout << "\n";
+}
 
-    // fin.open("input.txt");
-    int nthreads = 2;
+void input_handler(std::string op, std::string val)
+{
+    if(op == "search") {
+        std::cout << "\n\n";
+        std::cout << val << ": " << search_key(val) << std::endl;
+    } else if(op == "sh") {
+        showResults();
+    } else {
+        std::cout << "Unkown option" << std::endl;
+    }
+}
+
+int main(int argc, char** argv)
+{
+    if(argc != 3) {
+        std::cout << "Usage: ./word_counter <file_path> <nthreads>" << std::endl;
+        return -1;
+    }
+    std::ifstream fin(argv[1]);
+    int nthreads = atoi(argv[2]);
+
     std::vector<std::thread> threads;
 
     fin.seekg(0, fin.end);
     int size = fin.tellg();
-    //std::cout << "Status: " << " " << fin.eof() << " " << fin.fail() << " " << fin.fail() << std::endl;
     fin.seekg(0, fin.beg);
-    std::cout << "Size: " << size << std::endl;
 
     int begin = 0;
-    int batch_size = size/nthreads;
+    int batch_const = size/nthreads;
     for(int i=0; i<nthreads; i++) {
+        int batch_size;
         if(i == nthreads - 1)
             batch_size = (size - begin);
-        std::cout << "batch_size: " << batch_size << std::endl;
+        else
+            batch_size = (batch_const * (i+1)) - begin;
         int end = begin + batch_size;
-        std::cout << "Begin: " << begin << std::endl;
         if(end > size)
             end = size;
-        std::cout << "Pos: " << fin.tellg() << std::endl;
         fin.seekg(batch_size, fin.cur);
-        std::cout << "Pos: " << fin.tellg() << std::endl;
-        //std::cout << "Status: " << " " << fin.eof() << " " << fin.fail() << " " << fin.fail() << std::endl;
         char c;
         if(fin.tellg() != size) {
             c=fin.peek();
-            std::cout << "Pos after peek: " << fin.tellg() << " " << fin.eof() << " " << fin.fail() << " " << fin.fail() << std::endl;
             while(!fin.eof() && !isspace(c)) {
-                //std::cout << "Pos 1: " << fin.tellg() << std::endl;
                 c=fin.get();
                 end++;
                 c=fin.peek();
-                //std::cout << "Pos 2: " << fin.tellg() << std::endl;
             }
         }
-        std::cout << "End: " << end << std::endl;
-        std::cout << "Pos: " << fin.tellg() << " " << fin.eof() << " " << fin.fail() << " " << fin.bad() << std::endl;
         fin.seekg(-(end-begin), fin.cur);
-        std::cout << "Pos: " << fin.tellg() << std::endl;
-
         char * data = new char [(end - begin)];
         fin.read(data, (end - begin));
-        //membuf sbuf(data, data + sizeof(data));
-        //std::istream in(&sbuf);
-        std::cout << "Data: " << data << std::endl;
-        // in.get(std::cout);
+        std::string tmp(data, (end-begin));
+        threads.push_back(std::thread(countWords_parallel, tmp));
         data = NULL;
         delete[] data;
-        //threads.push_back(std::thread(countWords_parallel, "input.txt", begin, end));
         begin = end;
     }
-    std::cout << "synchronizing all threads..." << std::endl;
     for (auto& th : threads) {
         if(th.joinable()) {
             th.join();
         }
     }
-
-    showResults(); 
-}
-
-/*#include <iostream>
-#include <istream>
-#include <streambuf>
-#include <string>
-
-struct membuf : std::streambuf
-{
-    membuf(char* begin, char* end) {
-        this->setg(begin, begin, end);
-    }
-};
-
-int main()
-{
-    char buffer[] = "I'm a buffer with embedded nulls\0and line\n feeds";
-
-    membuf sbuf(buffer, buffer + sizeof(buffer));
-    std::istream in(&sbuf);
-    std::string line;
-    while (std::getline(in, line)) {
-        std::cout << "line: " << line << "\n";
+    std::cout << "Finished reading book!!\n" << std::endl;
+    while(true) {
+        printMenu();
+        std::string val;
+        std::vector<std::string> inputs;
+        getline(std::cin, val);
+        if(val != "") {
+            inputs = getOptions(val);
+            if(inputs.front() == "q" || inputs.front() == "quit" || inputs.front() == "Quit" || inputs.front() == "ex" || inputs.front() == "Exit" || inputs.front() == "exit") {
+                break;
+            }
+            if(inputs.size() < 2 && inputs.front() != "sh") {
+                std::cout << "Missing argument!" << std::endl;
+            } else {
+                input_handler(inputs.front(), inputs.back());
+                //cout << "Input is: " << val << endl;
+            }
+        }
     }
     return 0;
-}*/
+}
