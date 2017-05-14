@@ -42,6 +42,35 @@ void showResults()
         std::cout << x.first << ": " << x.second << std::endl;
 }
 
+std::vector<std::string> getInterval(std::string input, char delim)
+{
+    std::vector<std::string> inputs;
+    std::istringstream f(input);
+    std::string tmp;   
+    int i =0;
+    while (getline(f, tmp, delim) && i < 2) {
+        inputs.push_back(tmp);
+        i++;
+    }
+    return inputs;
+}
+
+std::string getReducer(json &reducers, std::string key)
+{
+    std::vector<std::string> interval;
+    for (json::iterator it = reducers.begin(); it != reducers.end(); ++it) {
+        interval = getInterval(it.key(), '-');
+        if(key[0] >= interval.front()[0] && key[0] <= interval.back()[0]) {
+            return it.value();
+            //std::cout << "Result" << it.value()  << std::endl;
+        } else {
+            interval.clear();
+        }
+        //std::cout << it.key() << " : " << it.value() << "\n";
+    }
+    return "test";
+}
+
 int main(int argc, char** argv)
 {
     srand(time(NULL));
@@ -59,11 +88,25 @@ int main(int argc, char** argv)
     socket bootstrap(ctx, socket_type::push);
     bootstrap.connect(bootstrap_address);
 
-    bootstrap.send(myID);
-
     socket s(ctx, socket_type::sub);
-    s.subscribe(myID);
     s.connect(master_address);
+    s.subscribe("");
+
+    json bootstrapMsg = {
+        {"source", "map"},
+        {"id", myID}
+    };
+
+    bootstrap.send(bootstrapMsg.dump());
+    bootstrap.disconnect(bootstrap_address);
+
+    std::string reducers_info;
+    json reducers;
+    s.receive(reducers_info);
+    reducers = json::parse(reducers_info);
+    //std::cout << std::setw(4) << reducers << std::endl;
+    s.unsubscribe("");
+    s.subscribe(myID);
 
     while(true) {
         std::cout << "Waiting for message to arrive!\n";
@@ -71,13 +114,26 @@ int main(int argc, char** argv)
         s.receive(address);
         s.receive(master_req);
         json message = json::parse(master_req);
-
-        std::cout << "Message received! from: [" << address << "]" << std::endl;
-        std::cout << "Data: " << message["data"].get<std::string>() << std::endl;
+        std::cout << "Message received!" << std::endl;
+        //std::cout << "Message received! from: [" << address << "]" << std::endl;
+        //std::cout << "Data: " << message["data"].get<std::string>() << std::endl;
         std::istringstream data(message["data"].get<std::string>());
         countWords(data);
         json results (words);
-        std::cout << std::setw(4) << results << std::endl;
+        //std::cout << std::setw(4) << results << std::endl;
+        
+        for (auto& x: words) {
+            std::cout << x.first << ": " << x.second << std::endl;
+            std::string reducer_address = getReducer(reducers, x.first);
+            //std::cout << "Destiny: " << reducer_address << std::endl;
+            bootstrap.connect(reducer_address);
+            json message = {
+                {"word", x.first},
+                {"count", x.second}
+            };
+            bootstrap.send(message.dump());
+            bootstrap.disconnect(reducer_address);
+        }
         break;
     }
     bootstrap.close();

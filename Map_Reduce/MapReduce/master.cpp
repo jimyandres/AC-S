@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <unordered_map>
 #include <cctype>
 #include <vector>
 #include <chrono>
@@ -10,24 +11,39 @@
 using json = nlohmann::json;
 using namespace zmqpp;
 
+void bootstrap_handler(json &req, std::vector<std::string> &mappers, std::unordered_map<std::string, std::string> &reducers)
+{
+	std::string src = req["source"];
+	if(src == "map") {
+		mappers.push_back(req["id"]);
+	} else if(src == "red") {
+		std::string key = req["lower_limit"].get<std::string>() + "-" + req["upper_limit"].get<std::string>();
+		std::string reducer = req["address"];
+		reducers[key] = reducer;
+	} else {
+		std::cout << "Unkown source" << std::setw(4) << req << std::endl;
+	}
+}
+
 int main(int argc, char** argv)
 {
 	if(argc != 3) {
-        std::cout << "Usage: ./word_counter <file_path> <address>" << std::endl;
+        std::cout << "Usage: ./word_counter <file_path> <bootstrap_address>" << std::endl;
         return -1;
     }
     std::ifstream fin(argv[1]);
-    std::string address = "tcp://" + std::string(argv[2]);
+    std::string bootstrap_address = "tcp://" + std::string(argv[2]);
 
     context ctx;
     socket s(ctx, socket_type::pull);
-    s.bind(address);
+    s.bind(bootstrap_address);
     
     socket mappers(ctx, socket_type::pub);
     mappers.bind("tcp://*:5555");
 
     std::string op;
     std::vector<std::string> mappers_ids;
+    std::unordered_map<std::string, std::string> reducers;
 
     int standardin = fileno(stdin);
 	poller p;
@@ -42,18 +58,26 @@ int main(int argc, char** argv)
     		if(p.has_input(standardin)) {
     			std::cin >> op;
     			if(op == "ready") {
+    				json reducers_info (reducers);
+    				mappers.send(reducers_info.dump());
 		    		break;
 		    	} else if(op == "sh") {
+		    		std::cout << "Mappers" << std::endl;
 		    		for(int i=0; i<(int)mappers_ids.size(); i++) {
 		    			std::cout << "Mapper [" << i << "] : " << mappers_ids[i] << std::endl;
 		    		}
+		    		std::cout << "\nReducers" << std::endl;
+		    		for (auto& x: reducers)
+				        std::cout << x.first << ": " << x.second << std::endl;
 		    	}
     		}
     		if(p.has_input(s)) {
     			std::string message;
 		    	s.receive(message);
-		    	std::cout << "Message received! " << message << std::endl;
-				mappers_ids.push_back(message);
+		    	json req = json::parse(message);
+		    	std::cout << "Message received!" << std::endl;
+		    	bootstrap_handler(req, mappers_ids, reducers);
+				//mappers_ids.push_back(message);
     		}
     	}
     }
@@ -67,7 +91,7 @@ int main(int argc, char** argv)
 	int begin = 0;
     int batch_const = size/nmappers;
     json message = {
-    	{"address", address}
+    	{"address", bootstrap_address}
     };
     for(int i=0; i<nmappers; i++) {
         int batch_size;
