@@ -92,7 +92,7 @@ void printInfo()
 int main(int argc, char** argv)
 {
 	if(argc != 3) {
-        std::cout << "Usage: ./word_counter <file_path> <bootstrap_address>" << std::endl;
+        std::cout << "Usage: ./master <file_path> <bootstrap_address>" << std::endl;
         return -1;
     }
     std::ifstream fin(argv[1]);
