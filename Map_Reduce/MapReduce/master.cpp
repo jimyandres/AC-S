@@ -39,6 +39,21 @@ void showResults(json &words)
     }
 }
 
+void saveResults(json &words, std::string fileName)
+{
+    std::string result = "";
+    for (json::iterator it = words.begin(); it != words.end(); ++it) {
+        result.append(it.key());
+        result.append(" : ");
+        result.append(std::to_string(static_cast<int>(it.value())));
+        result.append("\n");
+    }
+    std::ofstream out(fileName+".txt");
+    out << result;
+    out.close();
+    std::cout << "File successfully saved as " << fileName << ".txt" << std::endl;
+}
+
 void input_handler(std::string op, std::string val, json &words)
 {
     if(op == "search") {
@@ -52,7 +67,7 @@ void input_handler(std::string op, std::string val, json &words)
 void printMenu()
 {
     std::cout << "\n\n***********************************\n";
-    std::cout << "Enter action to perform: \n\tsearch <word>\n\t(sh) Show all results\n\t(menu) Show menu\n\t(ex) Exit\n";
+    std::cout << "Enter action to perform: \n\tsearch <word>\n\t(sh) Show all results\n\t(menu) Show menu\n\t(save) Save results into a file\n\t(ex) Exit\n";
     std::cout << "\n";
 }
 
@@ -198,7 +213,12 @@ int main(int argc, char** argv)
 						showResults(results);
 					} else if(inputs.front() == "menu") {
 						printMenu();
-					} else if(inputs.size() < 2) {
+					} else if(inputs.front() == "save") {
+                        std::string fileName;
+                        std::cout << "File name to be saved: ";
+                        std::cin >> fileName;
+                        saveResults(results, fileName);
+                    } else if(inputs.size() < 2) {
 		                std::cout << "Missing argument!" << std::endl;
 		            } else {
 		                input_handler(inputs.front(), inputs.back(), results);
