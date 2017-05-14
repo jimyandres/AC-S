@@ -32,8 +32,9 @@ int main(int argc, char** argv)
 		{"lower_limit", lower_limit},
 		{"upper_limit", upper_limit}
 	};
-	std::cout << std::setw(4) << bootstrapMsg << std::endl;
+	//std::cout << std::setw(4) << bootstrapMsg << std::endl;
 
+	std::cout << "Contacting master..." << std::endl;
 	bootstrap.send(bootstrapMsg.dump());
 
 	int standardin = fileno(stdin);
@@ -43,6 +44,7 @@ int main(int argc, char** argv)
 	p.add(s, poller::poll_in);
 
 	//std::cout << "address: " << address << "\ninterval: " << lower_limit << "-" << upper_limit << std::endl;
+	std::cout << "Waiting for results from mappers..." << std::endl;
 	while(true) {
 		//std::cout << "Waiting for message to arrive!\n";
 		if(p.poll(5000)) {
@@ -76,12 +78,16 @@ int main(int argc, char** argv)
 				}
     		}
 		} else {
-			json result (words);
-			bootstrap.send(result.dump());
-			break;
+			if(!words.empty()) {
+				std::cout << "Timeout reached, sending results to master..." << std::endl;
+				json result (words);
+				bootstrap.send(result.dump());
+				break;
+			}
 		}
 		//std::cout << std::setw(4) << data << std::endl;
 	}
+	std::cout << "Finishing up..." << std::endl;
 	bootstrap.close();
 	s.close();
 	ctx.terminate();

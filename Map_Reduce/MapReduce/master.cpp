@@ -16,10 +16,12 @@ void bootstrap_handler(json &req, std::vector<std::string> &mappers, std::unorde
 	std::string src = req["source"];
 	if(src == "map") {
 		mappers.push_back(req["id"]);
+		std::cout << "Mapper registered!!" << std::endl;
 	} else if(src == "red") {
 		std::string key = req["lower_limit"].get<std::string>() + "-" + req["upper_limit"].get<std::string>();
 		std::string reducer = req["address"];
 		reducers[key] = reducer;
+		std::cout << "Reducer registered!!" << std::endl;
 	} else {
 		std::cout << "Unkown source" << std::setw(4) << req << std::endl;
 	}
@@ -40,7 +42,7 @@ void showResults(json &words)
 void input_handler(std::string op, std::string val, json &words)
 {
     if(op == "search") {
-        std::cout << "\n\n";
+        std::cout << "\n";
         std::cout << val << ": " << search_key(words, val) << std::endl;
     } else {
         std::cout << "Unkown option" << std::endl;
@@ -65,6 +67,11 @@ std::vector<std::string> getOptions(std::string input, char delim)
         i++;
     }
     return inputs;
+}
+
+void printInfo()
+{
+	std::cout << "Run all the mappers and reducers that will be available, once all are running type 'ready' to start" << std::endl;
 }
 
 int main(int argc, char** argv)
@@ -94,8 +101,9 @@ int main(int argc, char** argv)
 	p.add(s, poller::poll_in);
 
 	//Register all the mappers that will be available
+	printInfo();
+	std::cout << "Waiting for mappers and reducers to register!" << std::endl;
     while(true) {
-    	std::cout << "Waiting for message to arrive!\n";
     	if(p.poll()) {
     		if(p.has_input(standardin)) {
     			std::cin >> op;
@@ -111,6 +119,8 @@ int main(int argc, char** argv)
 		    		std::cout << "\nReducers" << std::endl;
 		    		for (auto& x: reducers)
 				        std::cout << x.first << ": " << x.second << std::endl;
+		    	} else if(op == "q" || op == "quit" || op == "Quit" || op == "ex" || op == "Exit" || op == "exit") {
+		    		return 0;
 		    	}
     		}
     		if(p.has_input(s)) {
@@ -118,8 +128,8 @@ int main(int argc, char** argv)
 		    	s.receive(message);
 		    	json req = json::parse(message);
 		    	std::cout << "Message received!" << std::endl;
+		    	//std::cout << std::setw(4) << req << std::endl;
 		    	bootstrap_handler(req, mappers_ids, reducers);
-				//mappers_ids.push_back(message);
     		}
     	}
     }
@@ -136,6 +146,7 @@ int main(int argc, char** argv)
     json message = {
     	{"address", bootstrap_address}
     };
+    std::cout << "Sending parts to mappers..." << std::endl;
     for(int i=0; i<nmappers; i++) {
         int batch_size;
         if(i == nmappers - 1)
@@ -171,7 +182,7 @@ int main(int argc, char** argv)
     /*here should receive the results from the reducers*/
     json results = json({});
     int count_reducers = 0;
-    printMenu();
+    bool finished = false;
     while(true) {
     	if(p.poll()) {
     		if(p.has_input(standardin)) {
@@ -196,17 +207,17 @@ int main(int argc, char** argv)
 			    }
 		    }
 		    if(p.has_input(s)) {
+		    	std::cout << "Received result from reducer!" << std::endl;
 		    	std::string result;
 		    	s.receive(result);
 		    	count_reducers++;
 		    	json tmp = json::parse(result);
-		    	//std::cout << tmp.is_object() << std::endl;
-		    	//results.push_back(tmp);
 		    	results.insert(tmp.begin(), tmp.end());
 		    }
-		    if(count_reducers == nreducers) {
-		    	std::cout << "Finished counting words!!\n" << std::endl;
-		    	count_reducers++;
+		    if(count_reducers == nreducers && !finished) {
+		    	std::cout << "\nFinished counting words!!" << std::endl;
+		    	printMenu();
+		    	finished = true;
 		    }
     	}
     }

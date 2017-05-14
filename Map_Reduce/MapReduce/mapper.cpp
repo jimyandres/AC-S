@@ -10,24 +10,22 @@
 using namespace zmqpp;
 using json = nlohmann::json;
 
-std::unordered_map<std::string,int> words;
-
 std::string getNextToken(std::istream &in)
 {
     char c;
     std::string ans="";
     c=in.get();
-    while(!std::isalnum(c) && !in.eof()) { //remove non letter charachters
+    while(!std::isalpha(c) && !in.eof()) { //remove non letter charachters
         c=in.get();
     }
-    while(std::isalnum(c)) {
+    while(std::isalpha(c)) {
         ans.push_back(std::tolower(c));
         c=in.get();
     }
     return ans;
 }
 
-void countWords(std::istream &in)
+void countWords(std::istream &in, std::unordered_map<std::string,int> &words)
 {
     std::string s;
     std::string empty ="";
@@ -36,7 +34,7 @@ void countWords(std::istream &in)
     }
 }
 
-void showResults()
+void showResults(std::unordered_map<std::string,int> &words)
 {
     for (auto& x: words)
         std::cout << x.first << ": " << x.second << std::endl;
@@ -75,9 +73,10 @@ int main(int argc, char** argv)
 {
     srand(time(NULL));
     if(argc != 3) {
-        std::cout << "Usage: ./mapper <bootstrap_address> <master_address>" << std::endl;
+        std::cout << "Usage: ./mapper <bootstrap_address> <master_address:5555>" << std::endl;
         return -1;
     }
+    std::unordered_map<std::string,int> words;
     std::string bootstrap_address = "tcp://" + std::string(argv[1]);
     std::string master_address = "tcp://" + std::string(argv[2]);
     //std::string topic = argv[3];
@@ -97,6 +96,8 @@ int main(int argc, char** argv)
         {"id", myID}
     };
 
+    std::cout << "Contacting master..." << std::endl;
+
     bootstrap.send(bootstrapMsg.dump());
     bootstrap.disconnect(bootstrap_address);
 
@@ -108,31 +109,38 @@ int main(int argc, char** argv)
     s.unsubscribe("");
     s.subscribe(myID);
 
+    std::cout << "Waiting for data from master..." << std::endl;
     while(true) {
-        std::cout << "Waiting for message to arrive!\n";
         std::string master_req, address;
         s.receive(address);
         s.receive(master_req);
         json message = json::parse(master_req);
-        std::cout << "Message received!" << std::endl;
+        std::cout << "Data received!" << std::endl;
         //std::cout << "Message received! from: [" << address << "]" << std::endl;
         //std::cout << "Data: " << message["data"].get<std::string>() << std::endl;
         std::istringstream data(message["data"].get<std::string>());
-        countWords(data);
+        std::cout << "Counting words..." << std::endl;
+        countWords(data, words);
         //std::cout << std::setw(4) << results << std::endl;
         
+        std::cout << "Sending results to reducers..." << std::endl;
         for (auto& x: words) {
             //std::cout << x.first << ": " << x.second << std::endl;
             std::string reducer_address = getReducer(reducers, x.first);
             //std::cout << "Destiny: " << reducer_address << std::endl;
-            bootstrap.connect(reducer_address);
-            json message = {
-                {"word", x.first},
-                {"count", x.second}
-            };
-            bootstrap.send(message.dump());
-            bootstrap.disconnect(reducer_address);
+            if(reducer_address == "test") {
+                std::cout << "Couldn't find reducer for word: " << x.first << std::endl;
+            } else {
+                bootstrap.connect(reducer_address);
+                json message = {
+                    {"word", x.first},
+                    {"count", x.second}
+                };
+                bootstrap.send(message.dump());
+                bootstrap.disconnect(reducer_address);
+            }
         }
+        std::cout << "Results sended, finishing up..." << std::endl;
         break;
     }
     bootstrap.close();
