@@ -119,11 +119,10 @@ int main(int argc, char** argv)
         //std::cout << "Data: " << message["data"].get<std::string>() << std::endl;
         std::istringstream data(message["data"].get<std::string>());
         countWords(data);
-        json results (words);
         //std::cout << std::setw(4) << results << std::endl;
         
         for (auto& x: words) {
-            std::cout << x.first << ": " << x.second << std::endl;
+            //std::cout << x.first << ": " << x.second << std::endl;
             std::string reducer_address = getReducer(reducers, x.first);
             //std::cout << "Destiny: " << reducer_address << std::endl;
             bootstrap.connect(reducer_address);

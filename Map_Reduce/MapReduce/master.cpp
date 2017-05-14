@@ -25,6 +25,48 @@ void bootstrap_handler(json &req, std::vector<std::string> &mappers, std::unorde
 	}
 }
 
+int search_key(json &words, std::string key)
+{
+    return words[key];
+}
+
+void showResults(json &words)
+{
+    for (json::iterator it = words.begin(); it != words.end(); ++it) {
+        std::cout << it.key() << " : " << it.value() << "\n";
+    }
+}
+
+void input_handler(std::string op, std::string val, json &words)
+{
+    if(op == "search") {
+        std::cout << "\n\n";
+        std::cout << val << ": " << search_key(words, val) << std::endl;
+    } else {
+        std::cout << "Unkown option" << std::endl;
+    }
+}
+
+void printMenu()
+{
+    std::cout << "\n\n***********************************\n";
+    std::cout << "Enter action to perform: \n\tsearch <word>\n\t(sh) Show all results\n\t(menu) Show menu\n\t(ex) Exit\n";
+    std::cout << "\n";
+}
+
+std::vector<std::string> getOptions(std::string input, char delim)
+{
+    std::vector<std::string> inputs;
+    std::istringstream f(input);
+    std::string tmp;   
+    int i =0;
+    while (getline(f, tmp, delim) && i < 2) {
+        inputs.push_back(tmp);
+        i++;
+    }
+    return inputs;
+}
+
 int main(int argc, char** argv)
 {
 	if(argc != 3) {
@@ -84,6 +126,7 @@ int main(int argc, char** argv)
 
     /*Send parts of the file to mappers*/
     int nmappers = mappers_ids.size();
+    int nreducers = reducers.size();
     fin.seekg(0, fin.end);
     int size = fin.tellg();
     fin.seekg(0, fin.beg);
@@ -125,15 +168,45 @@ int main(int argc, char** argv)
         delete[] data;
         begin = end;
     }
-
     /*here should receive the results from the reducers*/
+    json results = json({});
+    int count_reducers = 0;
+    printMenu();
     while(true) {
     	if(p.poll()) {
     		if(p.has_input(standardin)) {
-    			std::cin >> op;
-    			if(op == "ex") {
-		    		break;
-		    	}
+    			//std::cin >> op;
+    			std::string val;
+				std::vector<std::string> inputs;
+				getline(std::cin, val);
+				if(val != "") {
+					inputs = getOptions(val, ' ');
+					if(inputs.front() == "q" || inputs.front() == "quit" || inputs.front() == "Quit" || inputs.front() == "ex" || inputs.front() == "Exit" || inputs.front() == "exit") {
+						break;
+					} else if(inputs.front() == "sh") {
+						showResults(results);
+					} else if(inputs.front() == "menu") {
+						printMenu();
+					} else if(inputs.size() < 2) {
+		                std::cout << "Missing argument!" << std::endl;
+		            } else {
+		                input_handler(inputs.front(), inputs.back(), results);
+		                //cout << "Input is: " << val << endl;
+		            }
+			    }
+		    }
+		    if(p.has_input(s)) {
+		    	std::string result;
+		    	s.receive(result);
+		    	count_reducers++;
+		    	json tmp = json::parse(result);
+		    	//std::cout << tmp.is_object() << std::endl;
+		    	//results.push_back(tmp);
+		    	results.insert(tmp.begin(), tmp.end());
+		    }
+		    if(count_reducers == nreducers) {
+		    	std::cout << "Finished counting words!!\n" << std::endl;
+		    	count_reducers++;
 		    }
     	}
     }
