@@ -61,6 +61,6 @@ To run the program compile with ```. export.sh```, then:
 **Notes:**
 * The ```bootstrap_address``` will be the same for each program.
 * ```<lower_limit>``` and ```<upper_limit>``` will define the alphabetic
-  range of the reducer, E.g. a z for a range of a-z.
+  range of the reducer-e.g., a z for a range of a-z.
 
 The server address cannot be localhost, instead use 127.0.0.1.
